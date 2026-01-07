@@ -1,0 +1,204 @@
+"""
+断言模块
+支持状态码和响应字段断言
+"""
+from typing import Dict, Any, List
+import json
+
+
+class Assertion:
+    """断言类"""
+    
+    @staticmethod
+    def assert_status_code(response, expected_status: int):
+        """
+        断言状态码
+        
+        Args:
+            response: 响应对象
+            expected_status: 期望的状态码
+        
+        Raises:
+            AssertionError: 状态码不匹配时抛出异常
+        """
+        actual_status = response.status_code
+        assert actual_status == expected_status, \
+            f"状态码断言失败: 期望 {expected_status}, 实际 {actual_status}"
+    
+    @staticmethod
+    def _resolve_request_reference(expected_value: Any, request_context: Dict[str, Any] = None) -> Any:
+        """
+        解析请求参数引用，支持 ${request.json.field} 格式
+        
+        Args:
+            expected_value: 期望值，可能包含请求参数引用
+            request_context: 请求上下文，包含json、data、params、headers
+        
+        Returns:
+            解析后的值
+        """
+        if request_context is None:
+            return expected_value
+        
+        if isinstance(expected_value, str) and expected_value.startswith('${request.') and expected_value.endswith('}'):
+            # 支持 ${request.json.field} 格式
+            # 去掉 ${request. (10个字符) 和 } (1个字符)
+            ref_path = expected_value[10:-1]
+            
+            # 分割请求类型和字段路径
+            parts = ref_path.split('.', 1)
+            
+            if len(parts) == 2:
+                request_type, field_path = parts
+                request_data = request_context.get(request_type, {})
+                
+                if isinstance(request_data, dict):
+                    # 解析嵌套字段路径
+                    keys = field_path.split('.')
+                    value = request_data
+                    for key in keys:
+                        if isinstance(value, dict) and key in value:
+                            value = value[key]
+                        elif isinstance(value, list) and key.isdigit():
+                            value = value[int(key)]
+                        else:
+                            raise ValueError(f"无法解析请求参数引用路径: {ref_path}，字段 {key} 不存在")
+                    return value
+                else:
+                    raise ValueError(f"请求参数类型 {request_type} 不是字典类型")
+            else:
+                raise ValueError(f"请求参数引用格式错误: {expected_value}，应为 ${request.json.field} 格式")
+        
+        return expected_value
+    
+    @staticmethod
+    def assert_response_field(
+        response,
+        field_path: str,
+        expected_value: Any = None,
+        not_empty: bool = False,
+        request_context: Dict[str, Any] = None
+    ):
+        """
+        断言响应字段
+        
+        Args:
+            response: 响应对象
+            field_path: 字段路径，支持嵌套，如 data.user.name
+            expected_value: 期望值（可选）
+            not_empty: 是否断言字段不为空
+        
+        Raises:
+            AssertionError: 断言失败时抛出异常
+        """
+        try:
+            if hasattr(response, 'json'):
+                response_data = response.json()
+            elif isinstance(response, dict):
+                response_data = response
+            else:
+                response_data = json.loads(response)
+        except:
+            raise AssertionError(f"无法解析响应为JSON: {response}")
+        
+        # 解析嵌套字段路径
+        keys = field_path.split('.')
+        value = response_data
+        
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            elif isinstance(value, list) and key.isdigit():
+                value = value[int(key)]
+            else:
+                raise AssertionError(f"字段路径不存在: {field_path}")
+        
+        # 断言不为空
+        if not_empty:
+            assert value is not None, f"字段 {field_path} 为空"
+            if isinstance(value, str):
+                assert value.strip() != '', f"字段 {field_path} 为空字符串"
+            elif isinstance(value, (list, dict)):
+                assert len(value) > 0, f"字段 {field_path} 为空列表或字典"
+        
+        # 断言期望值
+        if expected_value is not None:
+            # 解析请求参数引用
+            resolved_expected_value = Assertion._resolve_request_reference(
+                expected_value, request_context
+            )
+            assert value == resolved_expected_value, \
+                f"字段 {field_path} 断言失败: 期望 {resolved_expected_value}, 实际 {value}"
+    
+    @staticmethod
+    def assert_response_not_empty(response, field_path: str = None):
+        """
+        断言响应或字段不为空
+        
+        Args:
+            response: 响应对象
+            field_path: 字段路径（可选），如果不提供则断言整个响应
+        
+        Raises:
+            AssertionError: 断言失败时抛出异常
+        """
+        if field_path:
+            Assertion.assert_response_field(response, field_path, not_empty=True)
+        else:
+            try:
+                if hasattr(response, 'json'):
+                    response_data = response.json()
+                elif isinstance(response, dict):
+                    response_data = response
+                else:
+                    response_data = json.loads(response)
+                
+                assert response_data is not None, "响应为空"
+                if isinstance(response_data, dict):
+                    assert len(response_data) > 0, "响应为空字典"
+                elif isinstance(response_data, list):
+                    assert len(response_data) > 0, "响应为空列表"
+            except json.JSONDecodeError:
+                # 如果不是JSON，检查文本内容
+                if hasattr(response, 'text'):
+                    assert response.text.strip() != '', "响应文本为空"
+                else:
+                    assert str(response).strip() != '', "响应为空"
+    
+    @staticmethod
+    def assert_multiple_fields(
+        response,
+        assertions: List[Dict[str, Any]],
+        request_context: Dict[str, Any] = None
+    ):
+        """
+        批量断言多个字段
+        
+        Args:
+            response: 响应对象
+            assertions: 断言配置列表，每个配置包含:
+                - field: 字段路径
+                - expected_value: 期望值（可选）
+                - not_empty: 是否断言不为空（可选）
+        
+        Raises:
+            AssertionError: 断言失败时抛出异常
+        """
+        for assertion in assertions:
+            field = assertion.get('field')
+            expected_value = assertion.get('expected_value')
+            not_empty = assertion.get('not_empty', False)
+            
+            if not_empty:
+                Assertion.assert_response_field(
+                    response, field, not_empty=True, request_context=request_context
+                )
+            elif expected_value is not None:
+                Assertion.assert_response_field(
+                    response, field, expected_value=expected_value, request_context=request_context
+                )
+            else:
+                Assertion.assert_response_field(
+                    response, field, not_empty=True, request_context=request_context
+                )
+

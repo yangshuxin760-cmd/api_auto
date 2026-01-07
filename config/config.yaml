@@ -1,0 +1,22 @@
+# 框架配置文件
+base_url: http://173.249.27.176:8000
+timeout: 30
+
+# 数据库配置
+database:
+  host: localhost
+  port: 3306
+  user: root
+  password: password
+  database: test_db
+  charset: utf8mb4
+
+# Token配置
+token:
+  # Token存储的响应字段路径，例如: data.token 或 token
+  field_path: data.token
+  # Token在请求头中的key
+  header_key: Authorization
+  # Token前缀，例如: Bearer
+  prefix: Bearer
+

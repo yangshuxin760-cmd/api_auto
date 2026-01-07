@@ -1,0 +1,180 @@
+# 完整的用户注册接口测试用例 - 展示框架各项功能（中文关键字驱动）
+
+# ========== 正常场景 ==========
+
+- 用例名称: 用户注册_正常场景
+  用例描述: 测试用户正常注册功能，验证注册接口是否正常工作，包含完整的断言
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: autotest_${timestamp}
+    email: autotest_${timestamp}@test.com
+    password: testpass123
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: id
+        不为空: true
+      - 字段: username
+        期望值: ${request.json.username}
+      - 字段: email
+        期望值: ${request.json.email}
+      - 字段: is_admin
+        不为空: true
+      - 字段: created_at
+        不为空: true
+    响应不为空: true
+
+# ========== 异常场景 ==========
+
+- 用例名称: 用户注册_用户名已存在
+  用例描述: 测试注册时用户名已存在的场景，应该返回400错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: new_user_1767790392
+    email: new_user_1767790392@test.com
+    password: testpass123
+  断言:
+    状态码: 400
+    字段断言:
+      - 字段: detail
+        期望值: Username already exists
+
+- 用例名称: 用户注册_邮箱已存在
+  用例描述: 测试注册时邮箱已存在的场景，应该返回400错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: new_user_${timestamp}
+    email: new_user_1767790392@test.com
+    password: testpass123
+  断言:
+    状态码: 400
+    字段断言:
+      - 字段: detail
+        期望值: Email already exists
+
+- 用例名称: 用户注册_缺少用户名
+  用例描述: 测试缺少必填字段username的场景，应该返回422验证错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    email: test_${timestamp}@test.com
+    password: testpass123
+  断言:
+    状态码: 422
+
+- 用例名称: 用户注册_缺少邮箱
+  用例描述: 测试缺少必填字段email的场景，应该返回422验证错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: testuser_${timestamp}
+    password: testpass123
+  断言:
+    状态码: 422
+
+- 用例名称: 用户注册_缺少密码
+  用例描述: 测试缺少必填字段password的场景，应该返回422验证错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: testuser_${timestamp}
+    email: test_${timestamp}@test.com
+  断言:
+    状态码: 422
+
+- 用例名称: 用户注册_邮箱格式错误
+  用例描述: 测试邮箱格式错误的场景，应该返回400错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: testuser_${timestamp}
+    email: invalid_email_format
+    password: testpass123
+  断言:
+    状态码: 400
+    字段断言:
+      - 字段: detail
+        期望值: Invalid email format
+
+- 用例名称: 用户注册_空用户名
+  用例描述: 测试用户名为空字符串的场景，应该返回400错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: ""
+    email: test_${timestamp}@test.com
+    password: testpass123
+  断言:
+    状态码: 400
+    字段断言:
+      - 字段: detail
+        不为空: true
+
+- 用例名称: 用户注册_空邮箱
+  用例描述: 测试邮箱为空字符串的场景，应该返回400错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: testuser_${timestamp}
+    email: ""
+    password: testpass123
+  断言:
+    状态码: 400
+    字段断言:
+      - 字段: detail
+        不为空: true
+
+- 用例名称: 用户注册_空密码
+  用例描述: 测试密码为空字符串的场景，应该返回400错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: testuser_${timestamp}
+    email: test_${timestamp}@test.com
+    password: ""
+  断言:
+    状态码: 400
+    字段断言:
+      - 字段: detail
+        不为空: true
+
+- 用例名称: 用户注册_用户名过长
+  用例描述: 测试用户名过长的场景（如果有限制），应该返回400错误
+  请求方法: POST
+  请求地址: /register
+  请求头:
+    Content-Type: application/json
+  请求体:
+    username: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    email: test_${timestamp}@test.com
+    password: testpass123
+  断言:
+    状态码: 400
+    字段断言:
+      - 字段: detail
+        不为空: true
+
+
