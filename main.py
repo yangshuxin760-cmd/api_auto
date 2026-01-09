@@ -202,14 +202,13 @@ if __name__ == '__main__':
         print(f"    - {yaml_file}")
     print(f"{'='*80}\n")
     
-    # 生成Allure报告
-    print("正在生成Allure测试报告...")
+    # 自动生成Allure报告
+    print("\n正在生成Allure测试报告...")
     ReportGenerator.generate_allure_report()
     
-    # 询问是否打开报告
-    try:
-        open_report = input("\n是否在浏览器中打开Allure报告? (y/n): ")
-        if open_report.lower() == 'y':
-            ReportGenerator.open_allure_report()
-    except:
-        pass
+    # 显示报告路径，不自动打开
+    import os
+    report_path = os.path.abspath('allure-report/index.html')
+    print(f"✅ 测试报告已生成")
+    print(f"📁 报告路径: {report_path}")
+    print(f"💡 需要查看报告时，请手动打开上述路径")
