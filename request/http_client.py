@@ -266,7 +266,8 @@ class HttpClient:
         params: Dict[str, Any] = None,
         data: Any = None,
         json_data: Dict[str, Any] = None,
-        case_name: str = None
+        case_name: str = None,
+        use_token: bool = True
     ) -> requests.Response:
         """
         发送HTTP请求
@@ -295,8 +296,9 @@ class HttpClient:
         data = self._resolve_variables(data, case_name) if data else None
         json_data = self._resolve_variables(json_data, case_name) if json_data else None
         
-        # 添加token到请求头
-        headers = self._add_token_to_headers(headers)
+        # 添加token到请求头（仅当允许使用token时）
+        if use_token:
+            headers = self._add_token_to_headers(headers)
         
         # 打印请求日志（简洁版）
         start_time = time.time()

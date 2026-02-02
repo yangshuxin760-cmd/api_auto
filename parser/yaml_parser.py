@@ -15,6 +15,8 @@ class YamlParser:
         # 用例基本信息
         '用例名称': 'name',
         '用例描述': 'description',
+        # 控制开关
+        '不使用token': 'no_token',
         # 请求相关
         '请求方法': 'method',
         '请求地址': 'url',

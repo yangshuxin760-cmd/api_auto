@@ -136,6 +136,8 @@ class TestRunner:
                 params = test_case.get('params', {})
                 data = test_case.get('data')
                 json_data = test_case.get('json', {})
+                # 是否禁用token（用于未登录场景）
+                no_token = test_case.get('no_token', False)
                 
                 # 解析SQL结果到参数中
                 if sql_result:
@@ -144,7 +146,8 @@ class TestRunner:
                     data = self._resolve_sql_result(data, sql_result) if data else None
                     json_data = self._resolve_sql_result(json_data, sql_result) if json_data else {}
                 
-                # 解析变量（如${timestamp}）到参数中
+                # 解析变量（如${timestamp}）到参数中，包括URL
+                url = self.http_client._resolve_variables(url, case_name) if url else ''
                 headers = self.http_client._resolve_variables(headers, case_name) if headers else {}
                 params = self.http_client._resolve_variables(params, case_name) if params else {}
                 data = self.http_client._resolve_variables(data, case_name) if data else None
@@ -185,7 +188,8 @@ class TestRunner:
                         params=params,
                         data=data,
                         json_data=json_data,
-                        case_name=case_name
+                        case_name=case_name,
+                        use_token=not no_token
                     )
                     
                     # 记录响应
@@ -231,7 +235,9 @@ class TestRunner:
                 if fields:
                     with allure.step("断言响应字段"):
                         self.assertion.assert_multiple_fields(
-                            response, fields, request_context=request_context
+                            response, fields, 
+                            request_context=request_context,
+                            response_cache=self.http_client.response_cache
                         )
                 
                 # 断言响应不为空

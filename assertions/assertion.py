@@ -26,24 +26,36 @@ class Assertion:
             f"状态码断言失败: 期望 {expected_status}, 实际 {actual_status}"
     
     @staticmethod
-    def _resolve_request_reference(expected_value: Any, request_context: Dict[str, Any] = None) -> Any:
+    def _resolve_request_reference(
+        expected_value: Any, 
+        request_context: Dict[str, Any] = None,
+        response_cache: Dict[str, Any] = None
+    ) -> Any:
         """
-        解析请求参数引用，支持 ${request.json.field} 格式
+        解析请求参数引用和接口依赖变量
+        支持 ${request.json.field} 和 ${用例名称.字段} 格式
         
         Args:
-            expected_value: 期望值，可能包含请求参数引用
+            expected_value: 期望值，可能包含请求参数引用或接口依赖变量
             request_context: 请求上下文，包含json、data、params、headers
+            response_cache: 接口响应缓存，用于解析 ${用例名称.字段} 格式
         
         Returns:
             解析后的值
         """
-        if request_context is None:
+        if not isinstance(expected_value, str) or not expected_value.startswith('${') or not expected_value.endswith('}'):
             return expected_value
         
-        if isinstance(expected_value, str) and expected_value.startswith('${request.') and expected_value.endswith('}'):
-            # 支持 ${request.json.field} 格式
-            # 去掉 ${request. (10个字符) 和 } (1个字符)
-            ref_path = expected_value[10:-1]
+        # 去掉 ${ 和 }
+        ref_path = expected_value[2:-1]
+        
+        # 支持 ${request.json.field} 格式
+        if ref_path.startswith('request.'):
+            if request_context is None:
+                return expected_value
+            
+            # 去掉 request. (8个字符)
+            ref_path = ref_path[8:]
             
             # 分割请求类型和字段路径
             parts = ref_path.split('.', 1)
@@ -69,6 +81,31 @@ class Assertion:
             else:
                 raise ValueError(f"请求参数引用格式错误: {expected_value}，应为 ${request.json.field} 格式")
         
+        # 支持 ${用例名称.字段} 格式（接口依赖变量）
+        elif response_cache is not None:
+            parts = ref_path.split('.', 1)
+            if len(parts) == 2:
+                ref_case_name, field_path = parts
+                if ref_case_name in response_cache:
+                    ref_response = response_cache[ref_case_name]
+                    
+                    # 解析嵌套字段路径
+                    keys = field_path.split('.')
+                    value = ref_response
+                    for key in keys:
+                        if isinstance(value, dict) and key in value:
+                            value = value[key]
+                        elif isinstance(value, list) and key.isdigit():
+                            value = value[int(key)]
+                        else:
+                            raise ValueError(f"无法解析接口依赖变量路径: {ref_path}，字段 {key} 不存在")
+                    
+                    return value
+                else:
+                    raise ValueError(f"找不到用例响应缓存: {ref_case_name}")
+            else:
+                raise ValueError(f"接口依赖变量格式错误: {expected_value}，应为 ${用例名称.字段} 格式")
+        
         return expected_value
     
     @staticmethod
@@ -77,7 +114,8 @@ class Assertion:
         field_path: str,
         expected_value: Any = None,
         not_empty: bool = False,
-        request_context: Dict[str, Any] = None
+        request_context: Dict[str, Any] = None,
+        response_cache: Dict[str, Any] = None
     ):
         """
         断言响应字段
@@ -123,9 +161,9 @@ class Assertion:
         
         # 断言期望值
         if expected_value is not None:
-            # 解析请求参数引用
+            # 解析请求参数引用和接口依赖变量
             resolved_expected_value = Assertion._resolve_request_reference(
-                expected_value, request_context
+                expected_value, request_context, response_cache
             )
             assert value == resolved_expected_value, \
                 f"字段 {field_path} 断言失败: 期望 {resolved_expected_value}, 实际 {value}"
@@ -169,7 +207,8 @@ class Assertion:
     def assert_multiple_fields(
         response,
         assertions: List[Dict[str, Any]],
-        request_context: Dict[str, Any] = None
+        request_context: Dict[str, Any] = None,
+        response_cache: Dict[str, Any] = None
     ):
         """
         批量断言多个字段
@@ -180,6 +219,8 @@ class Assertion:
                 - field: 字段路径
                 - expected_value: 期望值（可选）
                 - not_empty: 是否断言不为空（可选）
+            request_context: 请求上下文
+            response_cache: 接口响应缓存，用于解析 ${用例名称.字段} 格式
         
         Raises:
             AssertionError: 断言失败时抛出异常
@@ -189,16 +230,28 @@ class Assertion:
             expected_value = assertion.get('expected_value')
             not_empty = assertion.get('not_empty', False)
             
+            # 解析期望值中的变量引用
+            if expected_value is not None:
+                expected_value = Assertion._resolve_request_reference(
+                    expected_value, request_context, response_cache
+                )
+            
             if not_empty:
                 Assertion.assert_response_field(
-                    response, field, not_empty=True, request_context=request_context
+                    response, field, not_empty=True, 
+                    request_context=request_context,
+                    response_cache=response_cache
                 )
             elif expected_value is not None:
                 Assertion.assert_response_field(
-                    response, field, expected_value=expected_value, request_context=request_context
+                    response, field, expected_value=expected_value, 
+                    request_context=request_context,
+                    response_cache=response_cache
                 )
             else:
                 Assertion.assert_response_field(
-                    response, field, not_empty=True, request_context=request_context
+                    response, field, not_empty=True, 
+                    request_context=request_context,
+                    response_cache=response_cache
                 )
 

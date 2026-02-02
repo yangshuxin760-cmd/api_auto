@@ -13,10 +13,24 @@ database:
 
 # Token配置
 token:
-  # Token存储的响应字段路径，例如: data.token 或 token
-  field_path: data.token
+  # Token存储的响应字段路径，例如: access_token 或 data.token
+  # 登录接口返回格式: {"access_token": "...", "token_type": "bearer"}
+  field_path: access_token
   # Token在请求头中的key
   header_key: Authorization
   # Token前缀，例如: Bearer
   prefix: Bearer
 
+# 钉钉通知配置
+dingtalk:
+  # 钉钉机器人Webhook地址
+  webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=577895ff2873595bdd9ecee5a2fc10d35b3d45ae022d02cb8d96704acad6c9ea"
+  # 钉钉机器人密钥（可选，用于签名验证）
+  secret: "SEC1a3b11900103df2ec52b10147b285e26eea80f3e038882802a09537c58d3f7a4"
+  # @的手机号列表（可选）
+  at_mobiles: [17620915891]
+  # 是否@所有人（可选，默认false）
+  at_all: false
+  # 是否在本地环境强制发送（可选，默认false，仅在CI环境中自动发送）
+  # 设置为true时，即使在本地环境也会发送钉钉通知
+  force_send_in_local: false

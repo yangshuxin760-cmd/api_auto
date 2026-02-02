@@ -6,8 +6,15 @@ import os
 import sys
 import pytest
 import allure
+import time
+import json
+from datetime import datetime
 from runner.test_runner import TestRunner
 from report.report_generator import ReportGenerator
+from report.dingtalk_notifier import DingTalkNotifier
+
+# 统计信息文件路径
+STATS_FILE = '.test_stats.json'
 
 
 def get_yaml_files(path: str) -> list:
@@ -35,6 +42,16 @@ def get_yaml_files(path: str) -> list:
 # 存储要运行的YAML文件（全局变量）
 _yaml_files_to_run = []
 
+# 存储测试执行开始时间和统计信息（用于钉钉通知）
+_test_start_time = None
+_test_stats = {
+    'total': 0,
+    'passed': 0,
+    'failed': 0,
+    'skipped': 0,
+    'error': 0
+}
+
 
 def pytest_generate_tests(metafunc):
     """
@@ -52,6 +69,68 @@ def pytest_generate_tests(metafunc):
             metafunc.parametrize("yaml_file", _yaml_files_to_run)
         else:
             metafunc.parametrize("yaml_file", [None])
+
+
+def pytest_sessionstart(session):
+    """
+    pytest会话开始时的钩子函数
+    """
+    global _test_start_time
+    _test_start_time = time.time()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """
+    pytest会话结束时的钩子函数
+    """
+    # 注意：统计信息在test_yaml_case函数中累计
+    # 这个钩子函数可以用来做额外的处理
+    pass
+
+
+def is_ci_environment():
+    """
+    检测是否在CI环境中运行
+    
+    Returns:
+        bool: 如果在CI环境中返回True，否则返回False
+    """
+    ci_env_vars = [
+        'JENKINS_URL',      # Jenkins
+        'CI',                # 通用CI标志
+        'BUILD_NUMBER',      # Jenkins/GitLab CI
+        'GITLAB_CI',         # GitLab CI
+        'TRAVIS',            # Travis CI
+        'CIRCLECI',          # CircleCI
+        'GITHUB_ACTIONS',    # GitHub Actions
+        'TEAMCITY_VERSION',  # TeamCity
+        'GO_SERVER_URL',     # GoCD
+    ]
+    
+    # 检查环境变量
+    for var in ci_env_vars:
+        if os.environ.get(var):
+            return True
+    
+    # 也可以通过配置强制启用
+    try:
+        config_path = os.path.join(
+            os.path.dirname(__file__),
+            'config',
+            'config.yaml'
+        )
+        if os.path.exists(config_path):
+            import yaml
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                dingtalk_config = config.get('dingtalk', {})
+                # 如果配置了force_send_in_local，则允许本地发送
+                if dingtalk_config.get('force_send_in_local', False):
+                    return True
+    except Exception:
+        pass
+    
+    return False
 
 
 @allure.feature("接口自动化测试")
@@ -87,6 +166,26 @@ def test_yaml_case(yaml_file):
     total_cases = len(test_cases)
     passed_cases = 0
     failed_cases = 0
+    error_cases = 0
+    
+    # 累计到全局统计并保存到文件
+    global _test_stats
+    stats_file = os.path.join(os.path.dirname(__file__), STATS_FILE)
+    
+    # 读取当前统计信息（从文件读取，确保跨进程/模块一致性）
+    if os.path.exists(stats_file):
+        try:
+            with open(stats_file, 'r', encoding='utf-8') as f:
+                file_stats = json.load(f)
+                _test_stats['total'] = file_stats.get('total', 0)
+                _test_stats['passed'] = file_stats.get('passed', 0)
+                _test_stats['failed'] = file_stats.get('failed', 0)
+                _test_stats['error'] = file_stats.get('error', 0)
+                _test_stats['skipped'] = file_stats.get('skipped', 0)
+        except Exception:
+            pass  # 如果读取失败，使用内存中的值
+    
+    _test_stats['total'] += total_cases
     
     for index, test_case in enumerate(test_cases, 1):
         case_name = test_case.get('name', f'用例{index}')
@@ -97,9 +196,11 @@ def test_yaml_case(yaml_file):
             try:
                 runner._run_test_case(test_case)
                 passed_cases += 1
+                _test_stats['passed'] += 1
                 print(f"✓ [{index}/{total_cases}] {case_name} - 执行成功")
             except AssertionError as e:
                 failed_cases += 1
+                _test_stats['failed'] += 1
                 print(f"✗ [{index}/{total_cases}] {case_name} - 断言失败: {str(e)}")
                 # 继续执行，不中断
                 allure.attach(str(e), "断言失败", allure.attachment_type.TEXT)
@@ -108,6 +209,8 @@ def test_yaml_case(yaml_file):
                 pytest.fail(f"断言失败: {str(e)}", pytrace=False)
             except Exception as e:
                 failed_cases += 1
+                error_cases += 1
+                _test_stats['error'] += 1
                 print(f"✗ [{index}/{total_cases}] {case_name} - 执行异常: {str(e)}")
                 allure.attach(str(e), "执行异常", allure.attachment_type.TEXT)
                 import traceback
@@ -115,6 +218,13 @@ def test_yaml_case(yaml_file):
                 # 标记测试失败
                 allure.dynamic.label("test_status", "error")
                 pytest.fail(f"执行异常: {str(e)}", pytrace=False)
+        
+        # 每执行完一个用例就保存一次统计信息
+        try:
+            with open(stats_file, 'w', encoding='utf-8') as f:
+                json.dump(_test_stats, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
     
     # 打印总结
     print(f"\n{'='*80}")
@@ -131,6 +241,22 @@ def test_yaml_case(yaml_file):
 
 
 if __name__ == '__main__':
+    # 重置测试统计信息（直接重置字典的值，保持引用一致）
+    _test_stats['total'] = 0
+    _test_stats['passed'] = 0
+    _test_stats['failed'] = 0
+    _test_stats['skipped'] = 0
+    _test_stats['error'] = 0
+    _test_start_time = time.time()
+    
+    # 清除之前的统计文件
+    stats_file = os.path.join(os.path.dirname(__file__), STATS_FILE)
+    if os.path.exists(stats_file):
+        try:
+            os.remove(stats_file)
+        except Exception:
+            pass
+    
     # 设置Allure结果目录
     allure_results_dir = 'allure-results'
     
@@ -212,3 +338,73 @@ if __name__ == '__main__':
     print(f"✅ 测试报告已生成")
     print(f"📁 报告路径: {report_path}")
     print(f"💡 需要查看报告时，请手动打开上述路径")
+    
+    # 从文件读取最新的统计信息
+    stats_file = os.path.join(os.path.dirname(__file__), STATS_FILE)
+    final_stats = {
+        'total': 0,
+        'passed': 0,
+        'failed': 0,
+        'skipped': 0,
+        'error': 0
+    }
+    
+    if os.path.exists(stats_file):
+        try:
+            with open(stats_file, 'r', encoding='utf-8') as f:
+                final_stats = json.load(f)
+        except Exception as e:
+            print(f"⚠️  读取统计信息失败: {e}")
+            # 如果文件读取失败，尝试从模块中读取
+            import sys
+            current_module = sys.modules[__name__]
+            final_stats = getattr(current_module, '_test_stats', final_stats)
+    else:
+        # 如果文件不存在，从模块中读取
+        import sys
+        current_module = sys.modules[__name__]
+        final_stats = getattr(current_module, '_test_stats', final_stats)
+    
+    print(f"\n{'='*80}")
+    print(f"📊 测试执行统计汇总")
+    print(f"{'='*80}")
+    print(f"  总用例数: {final_stats['total']}")
+    print(f"  通过: {final_stats['passed']} ✅")
+    print(f"  失败: {final_stats['failed']} ❌")
+    print(f"  错误: {final_stats['error']} ⚠️")
+    print(f"  跳过: {final_stats['skipped']} ⏭️")
+    print(f"{'='*80}\n")
+    
+    # 发送钉钉通知（仅在CI环境中发送）
+    if is_ci_environment():
+        print("检测到CI环境，正在发送钉钉通知...")
+        try:
+            # 计算执行时长
+            test_duration = time.time() - _test_start_time if _test_start_time else 0
+            
+            # 创建钉钉通知器
+            dingtalk_notifier = DingTalkNotifier()
+            
+            # 发送测试报告（使用从文件读取的最新统计信息）
+            dingtalk_notifier.send_test_report(
+                total=final_stats['total'],
+                passed=final_stats['passed'],
+                failed=final_stats['failed'],
+                broken=final_stats['error'],
+                skipped=final_stats['skipped'],
+                duration=test_duration,
+                report_url=None  # 如果需要，可以配置报告URL
+            )
+        except Exception as e:
+            print(f"⚠️  发送钉钉通知失败: {e}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print("💡 本地环境，跳过钉钉通知（仅在CI环境中发送）")
+    
+    # 清理统计文件
+    if os.path.exists(stats_file):
+        try:
+            os.remove(stats_file)
+        except Exception:
+            pass
