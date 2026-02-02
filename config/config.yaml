@@ -31,6 +31,23 @@ dingtalk:
   at_mobiles: [17620915891]
   # 是否@所有人（可选，默认false）
   at_all: false
-  # 是否在本地环境强制发送（可选，默认false，仅在CI环境中自动发送）
+    # 是否在本地环境强制发送（可选，默认false，仅在CI环境中自动发送）
   # 设置为true时，即使在本地环境也会发送钉钉通知
   force_send_in_local: false
+
+# 日志配置
+logging:
+  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: INFO
+  # 日志文件目录
+  dir: logs
+  # 是否启用文件日志
+  enable_file: true
+  # 是否启用控制台日志
+  enable_console: true
+  # 是否使用JSON格式（结构化日志）
+  enable_json: false
+  # 单个日志文件最大字节数（默认10MB）
+  max_bytes: 10485760
+  # 保留的日志文件数量
+  backup_count: 5

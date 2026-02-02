@@ -12,9 +12,15 @@ from datetime import datetime
 from runner.test_runner import TestRunner
 from report.report_generator import ReportGenerator
 from report.dingtalk_notifier import DingTalkNotifier
+from config.config_manager import get_config, ConfigError
+from utils.logger import init_logger_from_config, get_logger
+from utils.exceptions import TestFrameworkError
 
 # 统计信息文件路径
 STATS_FILE = '.test_stats.json'
+
+# 初始化日志系统
+logger = get_logger(__name__)
 
 
 def get_yaml_files(path: str) -> list:
@@ -148,11 +154,17 @@ def test_yaml_case(yaml_file):
     print(f"\n{'='*80}")
     print(f"📁 正在执行测试文件: {yaml_file}")
     print(f"{'='*80}\n")
+    logger.info(f"开始执行测试文件: {yaml_file}")
     
     # 解析YAML文件，获取所有测试用例
-    from parser.yaml_parser import YamlParser
-    parser = YamlParser(yaml_file)
-    test_cases = parser.parse()
+    try:
+        from parser.yaml_parser import YamlParser
+        parser = YamlParser(yaml_file)
+        test_cases = parser.parse()
+        logger.info(f"成功解析 {len(test_cases)} 个测试用例")
+    except Exception as e:
+        logger.error(f"解析YAML文件失败: {e}", exc_info=True)
+        raise TestFrameworkError(f"解析YAML文件失败: {e}", {'yaml_file': yaml_file})
     
     # 获取文件级前置登录配置
     file_pre_login = parser.get_file_pre_login()
@@ -351,6 +363,22 @@ def test_yaml_case(yaml_file):
 
 
 if __name__ == '__main__':
+    try:
+        # 初始化配置管理器
+        config = get_config()
+        logger.info("配置管理器初始化成功")
+        
+        # 初始化日志系统（从配置读取）
+        init_logger_from_config(config)
+        logger.info("日志系统初始化成功")
+        
+    except ConfigError as e:
+        print(f"❌ 配置错误: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ 初始化失败: {e}")
+        sys.exit(1)
+    
     # 重置测试统计信息（直接重置字典的值，保持引用一致）
     _test_stats['total'] = 0
     _test_stats['passed'] = 0
@@ -486,31 +514,49 @@ if __name__ == '__main__':
     print(f"{'='*80}\n")
     
     # 发送钉钉通知（仅在CI环境中发送）
-    if is_ci_environment():
-        print("检测到CI环境，正在发送钉钉通知...")
-        try:
-            # 计算执行时长
-            test_duration = time.time() - _test_start_time if _test_start_time else 0
-            
-            # 创建钉钉通知器
-            dingtalk_notifier = DingTalkNotifier()
-            
-            # 发送测试报告（使用从文件读取的最新统计信息）
-            dingtalk_notifier.send_test_report(
-                total=final_stats['total'],
-                passed=final_stats['passed'],
-                failed=final_stats['failed'],
-                broken=final_stats['error'],
-                skipped=final_stats['skipped'],
-                duration=test_duration,
-                report_url=None  # 如果需要，可以配置报告URL
-            )
-        except Exception as e:
-            print(f"⚠️  发送钉钉通知失败: {e}")
-            import traceback
-            traceback.print_exc()
-    else:
-        print("💡 本地环境，跳过钉钉通知（仅在CI环境中发送）")
+    try:
+        config = get_config()
+        dingtalk_config = config.get_dingtalk_config()
+        
+        if is_ci_environment():
+            print("检测到CI环境，正在发送钉钉通知...")
+            logger.info("检测到CI环境，准备发送钉钉通知")
+            try:
+                # 计算执行时长
+                test_duration = time.time() - _test_start_time if _test_start_time else 0
+                
+                # 创建钉钉通知器
+                dingtalk_notifier = DingTalkNotifier(
+                    webhook_url=dingtalk_config.get('webhook_url'),
+                    secret=dingtalk_config.get('secret'),
+                    at_mobiles=dingtalk_config.get('at_mobiles', []),
+                    at_all=dingtalk_config.get('at_all', False)
+                )
+                
+                # 发送测试报告（使用从文件读取的最新统计信息）
+                dingtalk_notifier.send_test_report(
+                    total=final_stats['total'],
+                    passed=final_stats['passed'],
+                    failed=final_stats['failed'],
+                    broken=final_stats.get('error', 0),
+                    skipped=final_stats['skipped'],
+                    duration=test_duration,
+                    report_url=None  # 如果需要，可以配置报告URL
+                )
+                print("✅ 钉钉通知已发送")
+                logger.info("钉钉通知发送成功")
+            except Exception as e:
+                print(f"⚠️  发送钉钉通知失败: {e}")
+                logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
+                import traceback
+                traceback.print_exc()
+        else:
+            print("💡 本地环境，跳过钉钉通知（仅在CI环境中发送）")
+            logger.info("本地环境，跳过钉钉通知")
+    except ConfigError as e:
+        logger.warning(f"获取钉钉配置失败，跳过通知: {e}")
+    except Exception as e:
+        logger.error(f"处理钉钉通知时发生错误: {e}", exc_info=True)
     
     # 清理统计文件
     if os.path.exists(stats_file):

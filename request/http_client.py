@@ -33,31 +33,19 @@ class HttpClient:
         初始化HTTP客户端
         
         Args:
-            config_path: 配置文件路径
+            config_path: 配置文件路径（已废弃，保留以兼容旧代码）
         """
+        from config.config_manager import get_config
+        
         self.session = requests.Session()
-        self.base_url = None
-        self.timeout = 30
         self.token = None
-        self.token_config = {}
         self.response_cache = {}  # 存储接口响应，用于依赖引用
-        self._load_config(config_path)
-    
-    def _load_config(self, config_path: str = None):
-        """加载配置"""
-        if config_path is None:
-            config_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                'config',
-                'config.yaml'
-            )
         
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        
-        self.base_url = config.get('base_url', '')
-        self.timeout = config.get('timeout', 30)
-        self.token_config = config.get('token', {})
+        # 使用统一的配置管理器
+        self.config = get_config(config_path)
+        self.base_url = self.config.get_base_url()
+        self.timeout = self.config.get_timeout()
+        self.token_config = self.config.get_token_config()
     
     def set_token(self, token: str):
         """

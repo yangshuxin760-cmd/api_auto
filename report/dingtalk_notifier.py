@@ -13,45 +13,44 @@ import yaml
 class DingTalkNotifier:
     """钉钉通知器"""
     
-    def __init__(self, config_path: str = None):
+    def __init__(self, webhook_url: str = None, secret: str = None, 
+                 at_mobiles: list = None, at_all: bool = False, config_path: str = None):
         """
         初始化钉钉通知器
         
         Args:
-            config_path: 配置文件路径
+            webhook_url: 钉钉Webhook地址（优先使用）
+            secret: 钉钉密钥（优先使用）
+            at_mobiles: @的手机号列表（优先使用）
+            at_all: 是否@所有人（优先使用）
+            config_path: 配置文件路径（已废弃，保留以兼容旧代码）
         """
-        self.webhook_url = None
-        self.secret = None
-        self.at_mobiles = []
-        self.at_all = False
-        self._load_config(config_path)
+        # 如果直接提供了参数，优先使用参数
+        if webhook_url or secret is not None or at_mobiles is not None or at_all:
+            self.webhook_url = webhook_url
+            self.secret = secret
+            self.at_mobiles = at_mobiles or []
+            self.at_all = at_all
+        else:
+            # 否则从配置管理器加载
+            self._load_config_from_manager()
     
-    def _load_config(self, config_path: str = None):
-        """
-        从配置文件加载钉钉配置
-        
-        Args:
-            config_path: 配置文件路径
-        """
-        if config_path is None:
-            # 默认配置文件路径
-            config_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                'config',
-                'config.yaml'
-            )
-        
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config = yaml.safe_load(f)
-                    dingtalk_config = config.get('dingtalk', {})
-                    self.webhook_url = dingtalk_config.get('webhook_url')
-                    self.secret = dingtalk_config.get('secret')
-                    self.at_mobiles = dingtalk_config.get('at_mobiles', [])
-                    self.at_all = dingtalk_config.get('at_all', False)
-            except Exception as e:
-                print(f"⚠️  加载钉钉配置失败: {e}")
+    def _load_config_from_manager(self):
+        """从配置管理器加载钉钉配置"""
+        try:
+            from config.config_manager import get_config
+            config = get_config()
+            dingtalk_config = config.get_dingtalk_config()
+            self.webhook_url = dingtalk_config.get('webhook_url')
+            self.secret = dingtalk_config.get('secret')
+            self.at_mobiles = dingtalk_config.get('at_mobiles', [])
+            self.at_all = dingtalk_config.get('at_all', False)
+        except Exception as e:
+            print(f"⚠️  加载钉钉配置失败: {e}")
+            self.webhook_url = None
+            self.secret = None
+            self.at_mobiles = []
+            self.at_all = False
         else:
             # 尝试从环境变量获取
             self.webhook_url = os.environ.get('DINGTALK_WEBHOOK_URL')

@@ -16,24 +16,19 @@ class DatabaseHandler:
         初始化数据库连接
         
         Args:
-            config_path: 配置文件路径
+            config_path: 配置文件路径（已废弃，保留以兼容旧代码）
         """
+        from config.config_manager import get_config
+        from utils.exceptions import DatabaseError
+        
         self.connection = None
-        self.config = self._load_config(config_path)
-    
-    def _load_config(self, config_path: str = None) -> Dict[str, Any]:
-        """加载数据库配置"""
-        if config_path is None:
-            config_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                'config',
-                'config.yaml'
-            )
         
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        
-        return config.get('database', {})
+        # 使用统一的配置管理器
+        try:
+            self.config_manager = get_config(config_path)
+            self.config = self.config_manager.get_database_config()
+        except Exception as e:
+            raise DatabaseError(f"加载数据库配置失败: {e}")
     
     def connect(self):
         """建立数据库连接"""
