@@ -3,6 +3,7 @@
 支持接口依赖、SQL操作和断言
 """
 import allure
+import time
 from typing import Dict, Any, List
 import sys
 import os
@@ -55,6 +56,155 @@ class TestRunner:
         if sql:
             self.db_handler.execute_post_sql(sql)
     
+    def _execute_pre_login(self, pre_login_config: Dict[str, Any], case_name: str):
+        """
+        执行前置登录，为当前用例获取独立的登录token
+        
+        Args:
+            pre_login_config: 前置登录配置
+            case_name: 当前用例名称
+        """
+        import allure
+        
+        # 获取登录配置
+        auto_register = pre_login_config.get('auto_register', False)
+        username = pre_login_config.get('username', f'test_user_{int(time.time())}')
+        password = pre_login_config.get('password', 'testpass123')
+        login_url = pre_login_config.get('login_url', '/login')
+        login_method = pre_login_config.get('login_method', 'POST').upper()
+        login_body = pre_login_config.get('login_body', {})
+        
+        # 解析变量（如${timestamp}）
+        username = self.http_client._resolve_variables(username, case_name) if isinstance(username, str) else username
+        password = self.http_client._resolve_variables(password, case_name) if isinstance(password, str) else password
+        
+        # 如果配置了自动注册，先注册账号
+        if auto_register:
+            with allure.step("自动注册账号"):
+                register_url = pre_login_config.get('register_url', '/register')
+                register_email = pre_login_config.get('email', f'{username}@test.com')
+                
+                # 解析邮箱变量
+                register_email = self.http_client._resolve_variables(register_email, case_name) if isinstance(register_email, str) else register_email
+                
+                register_data = {
+                    'username': username,
+                    'email': register_email,
+                    'password': password
+                }
+                
+                allure.attach(
+                    str(register_data),
+                    "注册请求",
+                    allure.attachment_type.JSON
+                )
+                
+                # 发送注册请求
+                register_response = self.http_client.request(
+                    method='POST',
+                    url=register_url,
+                    headers={'Content-Type': 'application/json'},
+                    json_data=register_data,
+                    case_name=f"{case_name}_注册",
+                    use_token=False  # 注册不需要token
+                )
+                
+                allure.attach(
+                    str(register_response.status_code),
+                    "注册状态码",
+                    allure.attachment_type.TEXT
+                )
+                
+                try:
+                    register_json = register_response.json()
+                    allure.attach(
+                        str(register_json),
+                        "注册响应",
+                        allure.attachment_type.JSON
+                    )
+                except:
+                    allure.attach(
+                        register_response.text,
+                        "注册响应",
+                        allure.attachment_type.TEXT
+                    )
+                
+                if register_response.status_code not in [200, 201]:
+                    print(f"⚠️  账号注册失败，状态码: {register_response.status_code}")
+                    # 如果注册失败，继续尝试登录（可能账号已存在）
+        
+        # 准备登录请求体
+        if not login_body:
+            # 如果没有配置登录请求体，使用默认格式
+            login_body = {
+                'username': username,
+                'password': password
+            }
+        else:
+            # 如果配置了登录请求体，先解析其中的变量
+            login_body = self.http_client._resolve_variables(login_body, case_name)
+            # 然后替换用户名和密码（支持多种字段名）
+            # 支持 username/user/account 等字段名
+            for key in ['username', 'user', 'account', 'login']:
+                if key in login_body:
+                    login_body[key] = username
+                    break
+            else:
+                # 如果都没有，添加username字段
+                login_body['username'] = username
+            
+            # 支持 password/pwd/pass 等字段名
+            for key in ['password', 'pwd', 'pass']:
+                if key in login_body:
+                    login_body[key] = password
+                    break
+            else:
+                # 如果都没有，添加password字段
+                login_body['password'] = password
+        
+        with allure.step("执行登录"):
+            allure.attach(
+                str(login_body),
+                "登录请求",
+                allure.attachment_type.JSON
+            )
+            
+            # 发送登录请求（不使用token）
+            login_response = self.http_client.request(
+                method=login_method,
+                url=login_url,
+                headers={'Content-Type': 'application/json'},
+                json_data=login_body,
+                case_name=f"{case_name}_登录",
+                use_token=False  # 登录不需要token
+            )
+            
+            allure.attach(
+                str(login_response.status_code),
+                "登录状态码",
+                allure.attachment_type.TEXT
+            )
+            
+            try:
+                login_json = login_response.json()
+                allure.attach(
+                    str(login_json),
+                    "登录响应",
+                    allure.attachment_type.JSON
+                )
+            except:
+                allure.attach(
+                    login_response.text,
+                    "登录响应",
+                    allure.attachment_type.TEXT
+                )
+            
+            if login_response.status_code == 200:
+                # 登录成功，token会自动保存到HttpClient中
+                print(f"✅ 前置登录成功，用户名: {username}")
+            else:
+                raise Exception(f"前置登录失败，状态码: {login_response.status_code}, 响应: {login_response.text}")
+    
     def _resolve_sql_result(self, data: Any, sql_result: Any) -> Any:
         """
         将SQL结果解析到接口参数中
@@ -101,20 +251,26 @@ class TestRunner:
             是否执行成功
         """
         case_name = test_case.get('name', '未命名用例')
-        case_description = test_case.get('description', '')
         
         # 打印用例开始分隔符
         print(f"\n{'#' * 100}")
         print(f"🚀 开始执行用例: {case_name}")
-        if case_description:
-            print(f"📝 描述: {case_description}")
         print(f"{'#' * 100}\n")
         
         with allure.step(f"执行用例: {case_name}"):
-            if case_description:
-                allure.dynamic.description(case_description)
             
             try:
+                # 执行前置登录（如果配置了）
+                # 优先级：用例级前置登录 > 文件级前置登录 > 全局token
+                pre_login = test_case.get('pre_login')
+                if pre_login:
+                    with allure.step("执行用例级前置登录"):
+                        # 用例级前置登录，获取独立的token（优先级最高）
+                        self._execute_pre_login(pre_login, case_name)
+                        print(f"✅ 用例级前置登录完成，已获取独立token")
+                # 如果没有配置用例级前置登录，使用文件级或全局token
+                # 如果用例不需要token，可以配置 不使用token: true
+                
                 # 执行前置SQL
                 pre_sql = test_case.get('pre_sql')
                 sql_result = None

@@ -154,6 +154,9 @@ def test_yaml_case(yaml_file):
     parser = YamlParser(yaml_file)
     test_cases = parser.parse()
     
+    # 获取文件级前置登录配置
+    file_pre_login = parser.get_file_pre_login()
+    
     # 设置测试标题为YAML文件名（只设置一次，不在循环中设置）
     import os
     yaml_file_name = os.path.basename(yaml_file).replace('.yaml', '').replace('.yml', '')
@@ -163,6 +166,21 @@ def test_yaml_case(yaml_file):
     
     # 为每个用例创建独立的测试
     runner = TestRunner()
+    
+    # 如果配置了文件级前置登录，先执行登录
+    if file_pre_login:
+        print(f"\n{'='*80}")
+        print(f"🔑 执行文件级前置登录（文件: {yaml_file_name}）")
+        print(f"{'='*80}\n")
+        with allure.step(f"文件级前置登录: {yaml_file_name}"):
+            try:
+                runner._execute_pre_login(file_pre_login, f"{yaml_file_name}_文件级登录")
+                print(f"✅ 文件级前置登录成功，该文件中的所有用例将使用此账号的token\n")
+            except Exception as e:
+                print(f"❌ 文件级前置登录失败: {e}\n")
+                import traceback
+                traceback.print_exc()
+                raise
     total_cases = len(test_cases)
     passed_cases = 0
     failed_cases = 0
@@ -187,44 +205,108 @@ def test_yaml_case(yaml_file):
     
     _test_stats['total'] += total_cases
     
+    # 用于记录失败的用例信息，用于在Allure报告中显示
+    failed_cases_info = []
+    error_cases_info = []
+    
     for index, test_case in enumerate(test_cases, 1):
         case_name = test_case.get('name', f'用例{index}')
-        case_description = test_case.get('description', '')
         
         # 使用allure为每个用例创建独立的测试步骤
-        with allure.step(f"执行用例: {case_name}"):
+        step_title = f"执行用例: {case_name}"
+        with allure.step(step_title):
+            case_result = None  # 记录用例执行结果：'passed', 'failed', 'error'
+            failure_message = None
             try:
                 runner._run_test_case(test_case)
                 passed_cases += 1
                 _test_stats['passed'] += 1
+                case_result = 'passed'
                 print(f"✓ [{index}/{total_cases}] {case_name} - 执行成功")
+                # 标记步骤为成功（在Allure中显示为绿色）
+                allure.dynamic.severity(allure.severity_level.NORMAL)
             except AssertionError as e:
                 failed_cases += 1
                 _test_stats['failed'] += 1
-                print(f"✗ [{index}/{total_cases}] {case_name} - 断言失败: {str(e)}")
-                # 继续执行，不中断
-                allure.attach(str(e), "断言失败", allure.attachment_type.TEXT)
+                case_result = 'failed'
+                failure_message = str(e)
+                print(f"✗ [{index}/{total_cases}] {case_name} - 断言失败: {failure_message}")
+                
+                # 记录失败用例信息
+                failed_cases_info.append({
+                    'index': index,
+                    'name': case_name,
+                    'error': failure_message,
+                    'type': '断言失败'
+                })
+                
+                # 在Allure中标记失败，使用明显的标题
+                allure.dynamic.severity(allure.severity_level.CRITICAL)
+                # 附加详细的失败信息
+                failure_detail = f"用例名称: {case_name}\n"
+                failure_detail += f"失败原因: {failure_message}\n"
+                failure_detail += f"用例序号: {index}/{total_cases}"
+                allure.attach(failure_detail, f"❌ 用例失败详情: {case_name}", allure.attachment_type.TEXT)
+                # 也附加原始错误信息
+                allure.attach(str(e), "断言失败详情", allure.attachment_type.TEXT)
                 # 标记测试失败
                 allure.dynamic.label("test_status", "failed")
-                pytest.fail(f"断言失败: {str(e)}", pytrace=False)
+                allure.dynamic.label("failure_type", "assertion")
             except Exception as e:
                 failed_cases += 1
                 error_cases += 1
                 _test_stats['error'] += 1
-                print(f"✗ [{index}/{total_cases}] {case_name} - 执行异常: {str(e)}")
-                allure.attach(str(e), "执行异常", allure.attachment_type.TEXT)
+                case_result = 'error'
+                failure_message = str(e)
+                print(f"✗ [{index}/{total_cases}] {case_name} - 执行异常: {failure_message}")
+                
+                # 记录错误用例信息
                 import traceback
+                error_traceback = traceback.format_exc()
+                error_cases_info.append({
+                    'index': index,
+                    'name': case_name,
+                    'error': failure_message,
+                    'traceback': error_traceback,
+                    'type': '执行异常'
+                })
+                
+                # 在Allure中标记错误，使用明显的标题
+                allure.dynamic.severity(allure.severity_level.BLOCKER)
+                # 附加详细的错误信息
+                error_detail = f"用例名称: {case_name}\n"
+                error_detail += f"错误信息: {failure_message}\n"
+                error_detail += f"用例序号: {index}/{total_cases}\n\n"
+                error_detail += f"异常堆栈:\n{error_traceback}"
+                allure.attach(error_detail, f"⚠️ 用例执行异常: {case_name}", allure.attachment_type.TEXT)
+                # 也附加原始错误信息
+                allure.attach(str(e), "执行异常详情", allure.attachment_type.TEXT)
+                allure.attach(error_traceback, "异常堆栈", allure.attachment_type.TEXT)
                 traceback.print_exc()
                 # 标记测试失败
                 allure.dynamic.label("test_status", "error")
-                pytest.fail(f"执行异常: {str(e)}", pytrace=False)
-        
-        # 每执行完一个用例就保存一次统计信息
-        try:
-            with open(stats_file, 'w', encoding='utf-8') as f:
-                json.dump(_test_stats, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+                allure.dynamic.label("failure_type", "exception")
+            finally:
+                # 无论用例成功还是失败，都要保存统计信息
+                try:
+                    with open(stats_file, 'w', encoding='utf-8') as f:
+                        json.dump(_test_stats, f, ensure_ascii=False, indent=2)
+                        f.flush()  # 确保数据写入磁盘
+                        os.fsync(f.fileno())  # 强制同步到磁盘
+                except Exception as save_error:
+                    print(f"⚠️  保存统计信息失败: {save_error}")
+            
+            # 注意：不在循环中调用pytest.fail()，这样即使用例失败也会继续执行后续用例
+            # 所有用例执行完成后，再统一判断是否失败
+    
+    # 最后再保存一次统计信息，确保所有数据都被写入
+    try:
+        with open(stats_file, 'w', encoding='utf-8') as f:
+            json.dump(_test_stats, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+    except Exception as save_error:
+        print(f"⚠️  最终保存统计信息失败: {save_error}")
     
     # 打印总结
     print(f"\n{'='*80}")
@@ -235,9 +317,37 @@ def test_yaml_case(yaml_file):
     print(f"  失败: {failed_cases}")
     print(f"{'='*80}\n")
     
-    # 如果有失败的用例，让pytest知道测试失败
-    if failed_cases > 0:
-        pytest.fail(f"{failed_cases} 个用例执行失败")
+    # 如果有失败的用例，在Allure报告中附加失败用例摘要
+    if failed_cases_info or error_cases_info:
+        failure_summary = "=" * 80 + "\n"
+        failure_summary += "❌ 失败用例汇总\n"
+        failure_summary += "=" * 80 + "\n\n"
+        
+        if failed_cases_info:
+            failure_summary += f"【断言失败用例】共 {len(failed_cases_info)} 个:\n"
+            failure_summary += "-" * 80 + "\n"
+            for case_info in failed_cases_info:
+                failure_summary += f"\n{case_info['index']}. {case_info['name']}\n"
+                failure_summary += f"   错误: {case_info['error']}\n"
+            failure_summary += "\n"
+        
+        if error_cases_info:
+            failure_summary += f"【执行异常用例】共 {len(error_cases_info)} 个:\n"
+            failure_summary += "-" * 80 + "\n"
+            for case_info in error_cases_info:
+                failure_summary += f"\n{case_info['index']}. {case_info['name']}\n"
+                failure_summary += f"   错误: {case_info['error']}\n"
+            failure_summary += "\n"
+        
+        failure_summary += "=" * 80 + "\n"
+        failure_summary += f"总计: {len(failed_cases_info) + len(error_cases_info)} 个用例失败\n"
+        failure_summary += "=" * 80
+        
+        # 附加到Allure报告
+        allure.attach(failure_summary, "❌ 失败用例汇总", allure.attachment_type.TEXT)
+        
+        # 如果有失败的用例，让pytest知道测试失败（在所有用例执行完成后）
+        pytest.fail(f"{failed_cases + error_cases} 个用例执行失败（失败: {failed_cases}, 错误: {error_cases}）", pytrace=False)
 
 
 if __name__ == '__main__':
