@@ -9,6 +9,9 @@ pipeline {
         // 测试结果目录
         ALLURE_RESULTS = "${WORKSPACE}/allure-results"
         ALLURE_REPORT = "${WORKSPACE}/allure-report"
+        // Java 环境变量（用于 Allure）
+        JAVA_HOME = '/opt/homebrew/opt/openjdk@11'
+        PATH = "${env.JAVA_HOME}/bin:${env.PATH}"
     }
     
     options {
@@ -163,7 +166,8 @@ pipeline {
                             jdk: '',
                             properties: [],
                             reportBuildPolicy: 'ALWAYS',
-                            results: [[path: 'allure-results']]
+                            results: [[path: 'allure-results']],
+                            commandline: 'Allure'  // 指定在 Jenkins 系统配置中设置的 Allure 工具名称
                         ])
                         echo "✅ Allure 报告已成功发布到 Jenkins"
                         echo "💡 可以在构建页面左侧看到 'Allure Report' 链接"
