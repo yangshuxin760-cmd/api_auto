@@ -154,17 +154,10 @@ pipeline {
                     echo "=========================================="
                     echo "发布 Allure 测试报告"
                     echo "=========================================="
-                    // 注意：如果安装了 Allure Jenkins Plugin，报告会自动发布
-                    // 如果未安装插件，报告文件在 allure-report 目录中
-                    echo "💡 Allure 报告已生成在 allure-report 目录"
-                    echo "📦 如需在 Jenkins 中直接查看报告，请安装 Allure Jenkins Plugin:"
-                    echo "   https://plugins.jenkins.io/allure-jenkins-plugin/"
-                    echo "💡 安装插件后，需要在 Pipeline 配置中添加 allure 步骤"
-                    
-                    // 如果安装了 Allure 插件，可以取消下面的注释来发布报告
-                    // 注意：需要先在 Jenkins 中安装 Allure Jenkins Plugin
-                    /*
+                    // 尝试使用 Allure 插件发布报告
+                    // 如果插件未安装，会优雅地跳过并提示
                     try {
+                        // 使用 Allure 插件发布报告
                         allure([
                             includeProperties: false,
                             jdk: '',
@@ -172,12 +165,21 @@ pipeline {
                             reportBuildPolicy: 'ALWAYS',
                             results: [[path: 'allure-results']]
                         ])
-                        echo "✅ Allure 报告已成功发布"
+                        echo "✅ Allure 报告已成功发布到 Jenkins"
+                        echo "💡 可以在构建页面左侧看到 'Allure Report' 链接"
+                    } catch (NoSuchMethodError e) {
+                        echo "⚠️  Allure Jenkins Plugin 未安装"
+                        echo "📦 请按以下步骤安装插件："
+                        echo "   1. 进入 Manage Jenkins -> Manage Plugins"
+                        echo "   2. 在 Available 标签页搜索 'Allure Jenkins Plugin'"
+                        echo "   3. 勾选并点击 Install without restart"
+                        echo "   4. 安装完成后重启 Jenkins"
+                        echo "   5. 重新运行此构建即可看到 Allure 报告"
+                        echo "💡 报告文件已生成在 allure-report 目录，可通过构建产物查看"
                     } catch (Exception e) {
-                        echo "⚠️  Allure 插件未安装或配置有误"
-                        echo "错误信息: ${e.getMessage()}"
+                        echo "⚠️  Allure 插件调用失败: ${e.getMessage()}"
+                        echo "💡 报告文件已生成在 allure-report 目录"
                     }
-                    */
                 }
             }
         }
