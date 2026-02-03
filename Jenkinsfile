@@ -154,8 +154,16 @@ pipeline {
                     echo "=========================================="
                     echo "发布 Allure 测试报告"
                     echo "=========================================="
-                    // 使用 Allure 插件发布报告（需要安装 Allure Jenkins Plugin）
-                    // 如果插件未安装，这一步会失败但不影响整体流程
+                    // 注意：如果安装了 Allure Jenkins Plugin，报告会自动发布
+                    // 如果未安装插件，报告文件在 allure-report 目录中
+                    echo "💡 Allure 报告已生成在 allure-report 目录"
+                    echo "📦 如需在 Jenkins 中直接查看报告，请安装 Allure Jenkins Plugin:"
+                    echo "   https://plugins.jenkins.io/allure-jenkins-plugin/"
+                    echo "💡 安装插件后，需要在 Pipeline 配置中添加 allure 步骤"
+                    
+                    // 如果安装了 Allure 插件，可以取消下面的注释来发布报告
+                    // 注意：需要先在 Jenkins 中安装 Allure Jenkins Plugin
+                    /*
                     try {
                         allure([
                             includeProperties: false,
@@ -164,12 +172,12 @@ pipeline {
                             reportBuildPolicy: 'ALWAYS',
                             results: [[path: 'allure-results']]
                         ])
-                        echo "Allure 报告已成功发布"
+                        echo "✅ Allure 报告已成功发布"
                     } catch (Exception e) {
-                        echo "警告: Allure 插件未安装或配置有误，跳过报告发布"
+                        echo "⚠️  Allure 插件未安装或配置有误"
                         echo "错误信息: ${e.getMessage()}"
-                        echo "请安装 Allure Jenkins Plugin: https://plugins.jenkins.io/allure-jenkins-plugin/"
                     }
+                    */
                 }
             }
         }
