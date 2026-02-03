@@ -86,3 +86,5 @@ export DINGTALK_AT_ALL="false"
 - ⏱️ 执行时长
 
 配置完成后，每次测试执行完成都会自动发送钉钉通知！
+jenkins密码
+1ecc4398ac21424cbfc7ac7c5f084719

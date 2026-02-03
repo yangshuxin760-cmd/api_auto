@@ -252,7 +252,13 @@ class DingTalkNotifier:
 """
         
         if report_url:
-            markdown_content += f"\n### 📄 详细报告\n\n[查看完整报告]({report_url})\n"
+            # 如果是本地文件路径（以"本地报告路径:"开头），显示为文本说明
+            if report_url.startswith("本地报告路径:"):
+                report_path = report_url.replace("本地报告路径: ", "")
+                markdown_content += f"\n### 📄 详细报告\n\n**本地报告路径：**\n`{report_path}`\n\n💡 请在本地浏览器中打开上述路径查看报告\n"
+            else:
+                # Jenkins 环境，使用可点击的链接
+                markdown_content += f"\n### 📄 详细报告\n\n[🔗 查看完整报告]({report_url})\n"
         
         if at_text:
             markdown_content += f"\n{at_text}\n"

@@ -525,6 +525,19 @@ if __name__ == '__main__':
                 # 计算执行时长
                 test_duration = time.time() - _test_start_time if _test_start_time else 0
                 
+                # 生成 Allure 报告链接
+                report_url = None
+                # 在 Jenkins 环境中，使用 BUILD_URL 构建 Allure 报告链接
+                build_url = os.environ.get('BUILD_URL')
+                if build_url:
+                    # Jenkins Allure 插件发布的报告通常在 /allure/ 路径下
+                    report_url = f"{build_url.rstrip('/')}/allure/"
+                else:
+                    # 本地环境，显示报告路径（文本形式，因为 file:// 协议在钉钉中无法点击）
+                    report_path = os.path.abspath('allure-report/index.html')
+                    if os.path.exists(report_path):
+                        report_url = f"本地报告路径: {report_path}"
+                
                 # 创建钉钉通知器
                 dingtalk_notifier = DingTalkNotifier(
                     webhook_url=dingtalk_config.get('webhook_url'),
@@ -541,7 +554,7 @@ if __name__ == '__main__':
                     broken=final_stats.get('error', 0),
                     skipped=final_stats['skipped'],
                     duration=test_duration,
-                    report_url=None  # 如果需要，可以配置报告URL
+                    report_url=report_url  # 包含 Allure 报告链接
                 )
                 print("✅ 钉钉通知已发送")
                 logger.info("钉钉通知发送成功")
@@ -551,8 +564,46 @@ if __name__ == '__main__':
                 import traceback
                 traceback.print_exc()
         else:
-            print("💡 本地环境，跳过钉钉通知（仅在CI环境中发送）")
-            logger.info("本地环境，跳过钉钉通知")
+            # 检查是否强制在本地发送
+            if dingtalk_config.get('force_send_in_local', False):
+                print("检测到本地环境，但配置了强制发送，正在发送钉钉通知...")
+                logger.info("本地环境，但配置了强制发送，准备发送钉钉通知")
+                try:
+                    # 计算执行时长
+                    test_duration = time.time() - _test_start_time if _test_start_time else 0
+                    
+                    # 本地环境的报告路径
+                    report_path = os.path.abspath('allure-report/index.html')
+                    report_url = f"本地报告路径: {report_path}" if os.path.exists(report_path) else None
+                    
+                    # 创建钉钉通知器
+                    dingtalk_notifier = DingTalkNotifier(
+                        webhook_url=dingtalk_config.get('webhook_url'),
+                        secret=dingtalk_config.get('secret'),
+                        at_mobiles=dingtalk_config.get('at_mobiles', []),
+                        at_all=dingtalk_config.get('at_all', False)
+                    )
+                    
+                    # 发送测试报告
+                    dingtalk_notifier.send_test_report(
+                        total=final_stats['total'],
+                        passed=final_stats['passed'],
+                        failed=final_stats['failed'],
+                        broken=final_stats.get('error', 0),
+                        skipped=final_stats['skipped'],
+                        duration=test_duration,
+                        report_url=report_url
+                    )
+                    print("✅ 钉钉通知已发送")
+                    logger.info("钉钉通知发送成功")
+                except Exception as e:
+                    print(f"⚠️  发送钉钉通知失败: {e}")
+                    logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print("💡 本地环境，跳过钉钉通知（仅在CI环境中发送）")
+                logger.info("本地环境，跳过钉钉通知")
     except ConfigError as e:
         logger.warning(f"获取钉钉配置失败，跳过通知: {e}")
     except Exception as e:

@@ -31,9 +31,9 @@ dingtalk:
   at_mobiles: [17620915891]
   # 是否@所有人（可选，默认false）
   at_all: false
-    # 是否在本地环境强制发送（可选，默认false，仅在CI环境中自动发送）
+  # 是否在本地环境强制发送（可选，默认false，仅在CI环境中自动发送）
   # 设置为true时，即使在本地环境也会发送钉钉通知
-  force_send_in_local: false
+  force_send_in_local: true
 
 # 日志配置
 logging:
