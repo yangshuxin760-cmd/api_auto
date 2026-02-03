@@ -319,13 +319,14 @@ class HttpClient:
         # 计算请求耗时
         elapsed_time = time.time() - start_time
         
-        # 打印响应日志（简洁版）
+        # 解析响应JSON（只解析一次，后续复用）
+        response_json = None
+        is_json = False
         try:
             response_json = response.json()
             is_json = True
         except:
-            response_json = None
-            is_json = False
+            pass
 
         # 状态码和耗时（一行显示）
         status_icon = "❌" if response.status_code >= 400 else "✅"
@@ -361,20 +362,17 @@ class HttpClient:
             response_text = response.text[:100] + "..." if len(response.text) > 100 else response.text
             logger.info(f"📥 响应: {response_text}")
         
-        # 尝试从响应中提取token
-        try:
-            response_json = response.json()
+        # 尝试从响应中提取token（使用已解析的JSON）
+        if is_json and response_json:
             token = self._get_token_from_response(response_json)
             if token:
                 self.set_token(token)
-        except:
-            pass
         
-        # 缓存响应数据，用于后续接口依赖
+        # 缓存响应数据，用于后续接口依赖（使用已解析的JSON）
         if case_name:
-            try:
-                self.response_cache[case_name] = response.json()
-            except:
+            if is_json and response_json:
+                self.response_cache[case_name] = response_json
+            else:
                 self.response_cache[case_name] = {'text': response.text}
         
         return response

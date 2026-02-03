@@ -16,8 +16,10 @@ from config.config_manager import get_config, ConfigError
 from utils.logger import init_logger_from_config, get_logger
 from utils.exceptions import TestFrameworkError
 
-# 统计信息文件路径
+# 常量定义
 STATS_FILE = '.test_stats.json'
+STATS_WRITE_INTERVAL = 10  # 统计信息批量写入间隔（每N个用例写入一次）
+SEPARATOR_LINE = '=' * 80  # 分隔线
 
 # 初始化日志系统
 logger = get_logger(__name__)
@@ -94,13 +96,71 @@ def pytest_sessionfinish(session, exitstatus):
     pass
 
 
+# CI环境检测缓存
+_ci_environment_cache = None
+
+def _send_dingtalk_notification(final_stats: dict, test_duration: float):
+    """
+    发送钉钉通知（提取的公共函数）
+    
+    Args:
+        final_stats: 最终统计信息
+        test_duration: 测试执行时长
+    """
+    try:
+        config = get_config()
+        dingtalk_config = config.get_dingtalk_config()
+        
+        # 生成 Allure 报告链接
+        report_url = None
+        build_url = os.environ.get('BUILD_URL')
+        if build_url:
+            report_url = f"{build_url.rstrip('/')}/allure/"
+        else:
+            report_path = os.path.abspath('allure-report/index.html')
+            if os.path.exists(report_path):
+                report_url = f"本地报告路径: {report_path}"
+        
+        # 创建钉钉通知器
+        dingtalk_notifier = DingTalkNotifier(
+            webhook_url=dingtalk_config.get('webhook_url'),
+            secret=dingtalk_config.get('secret'),
+            at_mobiles=dingtalk_config.get('at_mobiles', []),
+            at_all=dingtalk_config.get('at_all', False)
+        )
+        
+        # 发送测试报告
+        dingtalk_notifier.send_test_report(
+            total=final_stats['total'],
+            passed=final_stats['passed'],
+            failed=final_stats['failed'],
+            broken=final_stats.get('error', 0),
+            skipped=final_stats['skipped'],
+            duration=test_duration,
+            report_url=report_url
+        )
+        print("✅ 钉钉通知已发送")
+        logger.info("钉钉通知发送成功")
+    except Exception as e:
+        print(f"⚠️  发送钉钉通知失败: {e}")
+        logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
+        import traceback
+        traceback.print_exc()
+
+
 def is_ci_environment():
     """
-    检测是否在CI环境中运行
+    检测是否在CI环境中运行（带缓存）
     
     Returns:
         bool: 如果在CI环境中返回True，否则返回False
     """
+    global _ci_environment_cache
+    
+    # 如果已缓存，直接返回
+    if _ci_environment_cache is not None:
+        return _ci_environment_cache
+    
     ci_env_vars = [
         'JENKINS_URL',      # Jenkins
         'CI',                # 通用CI标志
@@ -116,26 +176,20 @@ def is_ci_environment():
     # 检查环境变量
     for var in ci_env_vars:
         if os.environ.get(var):
+            _ci_environment_cache = True
             return True
     
-    # 也可以通过配置强制启用
+    # 也可以通过配置强制启用（使用配置管理器，避免重复读取文件）
     try:
-        config_path = os.path.join(
-            os.path.dirname(__file__),
-            'config',
-            'config.yaml'
-        )
-        if os.path.exists(config_path):
-            import yaml
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-                dingtalk_config = config.get('dingtalk', {})
-                # 如果配置了force_send_in_local，则允许本地发送
-                if dingtalk_config.get('force_send_in_local', False):
-                    return True
+        config = get_config()
+        dingtalk_config = config.get_dingtalk_config()
+        if dingtalk_config.get('force_send_in_local', False):
+            _ci_environment_cache = True
+            return True
     except Exception:
         pass
     
+    _ci_environment_cache = False
     return False
 
 
@@ -151,9 +205,9 @@ def test_yaml_case(yaml_file):
         pytest.skip("没有测试文件")
     
     # 打印文件信息，让用户知道正在执行哪个文件
-    print(f"\n{'='*80}")
+    print(f"\n{SEPARATOR_LINE}")
     print(f"📁 正在执行测试文件: {yaml_file}")
-    print(f"{'='*80}\n")
+    print(f"{SEPARATOR_LINE}\n")
     logger.info(f"开始执行测试文件: {yaml_file}")
     
     # 解析YAML文件，获取所有测试用例
@@ -220,6 +274,9 @@ def test_yaml_case(yaml_file):
     # 用于记录失败的用例信息，用于在Allure报告中显示
     failed_cases_info = []
     error_cases_info = []
+    
+    # 批量写入统计信息的计数器
+    stats_write_counter = 0
     
     for index, test_case in enumerate(test_cases, 1):
         case_name = test_case.get('name', f'用例{index}')
@@ -299,14 +356,23 @@ def test_yaml_case(yaml_file):
                 allure.dynamic.label("test_status", "error")
                 allure.dynamic.label("failure_type", "exception")
             finally:
-                # 无论用例成功还是失败，都要保存统计信息
-                try:
-                    with open(stats_file, 'w', encoding='utf-8') as f:
-                        json.dump(_test_stats, f, ensure_ascii=False, indent=2)
-                        f.flush()  # 确保数据写入磁盘
-                        os.fsync(f.fileno())  # 强制同步到磁盘
-                except Exception as save_error:
-                    print(f"⚠️  保存统计信息失败: {save_error}")
+                # 批量写入统计信息（减少IO操作）
+                stats_write_counter += 1
+                should_write = (
+                    stats_write_counter >= STATS_WRITE_INTERVAL or
+                    case_result in ('failed', 'error') or
+                    index == total_cases  # 最后一个用例
+                )
+                
+                if should_write:
+                    try:
+                        with open(stats_file, 'w', encoding='utf-8') as f:
+                            json.dump(_test_stats, f, ensure_ascii=False, indent=2)
+                            f.flush()
+                            os.fsync(f.fileno())
+                        stats_write_counter = 0
+                    except Exception as save_error:
+                        print(f"⚠️  保存统计信息失败: {save_error}")
             
             # 注意：不在循环中调用pytest.fail()，这样即使用例失败也会继续执行后续用例
             # 所有用例执行完成后，再统一判断是否失败
@@ -321,9 +387,9 @@ def test_yaml_case(yaml_file):
         print(f"⚠️  最终保存统计信息失败: {save_error}")
     
     # 打印总结
-    print(f"\n{'='*80}")
+    print(f"\n{SEPARATOR_LINE}")
     print(f"📊 测试文件执行总结: {yaml_file}")
-    print(f"{'='*80}")
+    print(SEPARATOR_LINE)
     print(f"  总用例数: {total_cases}")
     print(f"  通过: {passed_cases}")
     print(f"  失败: {failed_cases}")
@@ -331,7 +397,7 @@ def test_yaml_case(yaml_file):
     
     # 如果有失败的用例，在Allure报告中附加失败用例摘要
     if failed_cases_info or error_cases_info:
-        failure_summary = "=" * 80 + "\n"
+        failure_summary = SEPARATOR_LINE + "\n"
         failure_summary += "❌ 失败用例汇总\n"
         failure_summary += "=" * 80 + "\n\n"
         
@@ -351,9 +417,9 @@ def test_yaml_case(yaml_file):
                 failure_summary += f"   错误: {case_info['error']}\n"
             failure_summary += "\n"
         
-        failure_summary += "=" * 80 + "\n"
+        failure_summary += SEPARATOR_LINE + "\n"
         failure_summary += f"总计: {len(failed_cases_info) + len(error_cases_info)} 个用例失败\n"
-        failure_summary += "=" * 80
+        failure_summary += SEPARATOR_LINE
         
         # 附加到Allure报告
         allure.attach(failure_summary, "❌ 失败用例汇总", allure.attachment_type.TEXT)
@@ -458,9 +524,9 @@ if __name__ == '__main__':
     exit_code = pytest.main(pytest_args)
     
     # 打印总体总结
-    print(f"\n{'='*80}")
+    print(f"\n{SEPARATOR_LINE}")
     print(f"🎉 所有测试文件执行完成！")
-    print(f"{'='*80}")
+    print(SEPARATOR_LINE)
     print(f"  共执行 {len(yaml_files)} 个测试文件")
     for yaml_file in yaml_files:
         print(f"    - {yaml_file}")
@@ -511,99 +577,25 @@ if __name__ == '__main__':
     print(f"  失败: {final_stats['failed']} ❌")
     print(f"  错误: {final_stats['error']} ⚠️")
     print(f"  跳过: {final_stats['skipped']} ⏭️")
-    print(f"{'='*80}\n")
+    print(f"{SEPARATOR_LINE}\n")
     
     # 发送钉钉通知（仅在CI环境中发送）
     try:
         config = get_config()
         dingtalk_config = config.get_dingtalk_config()
+        test_duration = time.time() - _test_start_time if _test_start_time else 0
         
         if is_ci_environment():
             print("检测到CI环境，正在发送钉钉通知...")
             logger.info("检测到CI环境，准备发送钉钉通知")
-            try:
-                # 计算执行时长
-                test_duration = time.time() - _test_start_time if _test_start_time else 0
-                
-                # 生成 Allure 报告链接
-                report_url = None
-                # 在 Jenkins 环境中，使用 BUILD_URL 构建 Allure 报告链接
-                build_url = os.environ.get('BUILD_URL')
-                if build_url:
-                    # Jenkins Allure 插件发布的报告通常在 /allure/ 路径下
-                    report_url = f"{build_url.rstrip('/')}/allure/"
-                else:
-                    # 本地环境，显示报告路径（文本形式，因为 file:// 协议在钉钉中无法点击）
-                    report_path = os.path.abspath('allure-report/index.html')
-                    if os.path.exists(report_path):
-                        report_url = f"本地报告路径: {report_path}"
-                
-                # 创建钉钉通知器
-                dingtalk_notifier = DingTalkNotifier(
-                    webhook_url=dingtalk_config.get('webhook_url'),
-                    secret=dingtalk_config.get('secret'),
-                    at_mobiles=dingtalk_config.get('at_mobiles', []),
-                    at_all=dingtalk_config.get('at_all', False)
-                )
-                
-                # 发送测试报告（使用从文件读取的最新统计信息）
-                dingtalk_notifier.send_test_report(
-                    total=final_stats['total'],
-                    passed=final_stats['passed'],
-                    failed=final_stats['failed'],
-                    broken=final_stats.get('error', 0),
-                    skipped=final_stats['skipped'],
-                    duration=test_duration,
-                    report_url=report_url  # 包含 Allure 报告链接
-                )
-                print("✅ 钉钉通知已发送")
-                logger.info("钉钉通知发送成功")
-            except Exception as e:
-                print(f"⚠️  发送钉钉通知失败: {e}")
-                logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
-                import traceback
-                traceback.print_exc()
+            _send_dingtalk_notification(final_stats, test_duration)
+        elif dingtalk_config.get('force_send_in_local', False):
+            print("检测到本地环境，但配置了强制发送，正在发送钉钉通知...")
+            logger.info("本地环境，但配置了强制发送，准备发送钉钉通知")
+            _send_dingtalk_notification(final_stats, test_duration)
         else:
-            # 检查是否强制在本地发送
-            if dingtalk_config.get('force_send_in_local', False):
-                print("检测到本地环境，但配置了强制发送，正在发送钉钉通知...")
-                logger.info("本地环境，但配置了强制发送，准备发送钉钉通知")
-                try:
-                    # 计算执行时长
-                    test_duration = time.time() - _test_start_time if _test_start_time else 0
-                    
-                    # 本地环境的报告路径
-                    report_path = os.path.abspath('allure-report/index.html')
-                    report_url = f"本地报告路径: {report_path}" if os.path.exists(report_path) else None
-                    
-                    # 创建钉钉通知器
-                    dingtalk_notifier = DingTalkNotifier(
-                        webhook_url=dingtalk_config.get('webhook_url'),
-                        secret=dingtalk_config.get('secret'),
-                        at_mobiles=dingtalk_config.get('at_mobiles', []),
-                        at_all=dingtalk_config.get('at_all', False)
-                    )
-                    
-                    # 发送测试报告
-                    dingtalk_notifier.send_test_report(
-                        total=final_stats['total'],
-                        passed=final_stats['passed'],
-                        failed=final_stats['failed'],
-                        broken=final_stats.get('error', 0),
-                        skipped=final_stats['skipped'],
-                        duration=test_duration,
-                        report_url=report_url
-                    )
-                    print("✅ 钉钉通知已发送")
-                    logger.info("钉钉通知发送成功")
-                except Exception as e:
-                    print(f"⚠️  发送钉钉通知失败: {e}")
-                    logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
-                    import traceback
-                    traceback.print_exc()
-            else:
-                print("💡 本地环境，跳过钉钉通知（仅在CI环境中发送）")
-                logger.info("本地环境，跳过钉钉通知")
+            print("💡 本地环境，跳过钉钉通知（仅在CI环境中发送）")
+            logger.info("本地环境，跳过钉钉通知")
     except ConfigError as e:
         logger.warning(f"获取钉钉配置失败，跳过通知: {e}")
     except Exception as e:

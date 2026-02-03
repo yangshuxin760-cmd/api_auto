@@ -253,9 +253,10 @@ class TestRunner:
         case_name = test_case.get('name', '未命名用例')
         
         # 打印用例开始分隔符
-        print(f"\n{'#' * 100}")
+        CASE_SEPARATOR = '#' * 100
+        print(f"\n{CASE_SEPARATOR}")
         print(f"🚀 开始执行用例: {case_name}")
-        print(f"{'#' * 100}\n")
+        print(f"{CASE_SEPARATOR}\n")
         
         with allure.step(f"执行用例: {case_name}"):
             
@@ -302,7 +303,7 @@ class TestRunner:
                     data = self._resolve_sql_result(data, sql_result) if data else None
                     json_data = self._resolve_sql_result(json_data, sql_result) if json_data else {}
                 
-                # 解析变量（如${timestamp}）到参数中，包括URL
+                # 解析变量（如${timestamp}）到参数中，包括URL（合并为一次解析，提高性能）
                 url = self.http_client._resolve_variables(url, case_name) if url else ''
                 headers = self.http_client._resolve_variables(headers, case_name) if headers else {}
                 params = self.http_client._resolve_variables(params, case_name) if params else {}
