@@ -26,6 +26,34 @@ class Assertion:
             f"状态码断言失败: 期望 {expected_status}, 实际 {actual_status}"
     
     @staticmethod
+    def _resolve_field_path(data: Any, field_path: str, error_context: str = None) -> Any:
+        """
+        解析嵌套字段路径（辅助方法，与http_client保持一致）
+        
+        Args:
+            data: 数据对象（dict或list）
+            field_path: 字段路径，如 "data.user.name" 或 "0.id"
+            error_context: 错误上下文，用于错误信息
+        
+        Returns:
+            解析后的值
+        
+        Raises:
+            ValueError: 路径不存在时抛出异常
+        """
+        keys = field_path.split('.')
+        value = data
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            elif isinstance(value, list) and key.isdigit():
+                value = value[int(key)]
+            else:
+                error_msg = error_context or field_path
+                raise ValueError(f"无法解析引用路径: {error_msg}，字段 {key} 不存在")
+        return value
+    
+    @staticmethod
     def _resolve_request_reference(
         expected_value: Any, 
         request_context: Dict[str, Any] = None,
@@ -65,17 +93,8 @@ class Assertion:
                 request_data = request_context.get(request_type, {})
                 
                 if isinstance(request_data, dict):
-                    # 解析嵌套字段路径
-                    keys = field_path.split('.')
-                    value = request_data
-                    for key in keys:
-                        if isinstance(value, dict) and key in value:
-                            value = value[key]
-                        elif isinstance(value, list) and key.isdigit():
-                            value = value[int(key)]
-                        else:
-                            raise ValueError(f"无法解析请求参数引用路径: {ref_path}，字段 {key} 不存在")
-                    return value
+                    # 使用统一的字段路径解析方法
+                    return Assertion._resolve_field_path(request_data, field_path, ref_path)
                 else:
                     raise ValueError(f"请求参数类型 {request_type} 不是字典类型")
             else:
@@ -88,19 +107,8 @@ class Assertion:
                 ref_case_name, field_path = parts
                 if ref_case_name in response_cache:
                     ref_response = response_cache[ref_case_name]
-                    
-                    # 解析嵌套字段路径
-                    keys = field_path.split('.')
-                    value = ref_response
-                    for key in keys:
-                        if isinstance(value, dict) and key in value:
-                            value = value[key]
-                        elif isinstance(value, list) and key.isdigit():
-                            value = value[int(key)]
-                        else:
-                            raise ValueError(f"无法解析接口依赖变量路径: {ref_path}，字段 {key} 不存在")
-                    
-                    return value
+                    # 使用统一的字段路径解析方法
+                    return Assertion._resolve_field_path(ref_response, field_path, ref_path)
                 else:
                     raise ValueError(f"找不到用例响应缓存: {ref_case_name}")
             else:
@@ -130,7 +138,10 @@ class Assertion:
             AssertionError: 断言失败时抛出异常
         """
         try:
-            if hasattr(response, 'json'):
+            # 优先使用已解析的JSON（从http_client附加的_parsed_json）
+            if hasattr(response, '_parsed_json'):
+                response_data = response._parsed_json
+            elif hasattr(response, 'json'):
                 response_data = response.json()
             elif isinstance(response, dict):
                 response_data = response
@@ -184,7 +195,10 @@ class Assertion:
             Assertion.assert_response_field(response, field_path, not_empty=True)
         else:
             try:
-                if hasattr(response, 'json'):
+                # 优先使用已解析的JSON（从http_client附加的_parsed_json）
+                if hasattr(response, '_parsed_json'):
+                    response_data = response._parsed_json
+                elif hasattr(response, 'json'):
                     response_data = response.json()
                 elif isinstance(response, dict):
                     response_data = response

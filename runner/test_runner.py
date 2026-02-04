@@ -303,7 +303,8 @@ class TestRunner:
                     data = self._resolve_sql_result(data, sql_result) if data else None
                     json_data = self._resolve_sql_result(json_data, sql_result) if json_data else {}
                 
-                # 解析变量（如${timestamp}）到参数中，包括URL（合并为一次解析，提高性能）
+                # 解析变量（如${timestamp}）到参数中
+                # 注意：由于_resolve_variables支持递归处理字典，这里分别解析更清晰
                 url = self.http_client._resolve_variables(url, case_name) if url else ''
                 headers = self.http_client._resolve_variables(headers, case_name) if headers else {}
                 params = self.http_client._resolve_variables(params, case_name) if params else {}
@@ -349,15 +350,26 @@ class TestRunner:
                         use_token=not no_token
                     )
                     
-                    # 记录响应
-                    try:
-                        response_json = response.json()
+                    # 记录响应（从缓存中获取已解析的JSON，避免重复解析）
+                    response_json = None
+                    if case_name and case_name in self.http_client.response_cache:
+                        cached_response = self.http_client.response_cache[case_name]
+                        if isinstance(cached_response, dict) and 'text' not in cached_response:
+                            response_json = cached_response
+                    
+                    if response_json is None:
+                        try:
+                            response_json = response.json()
+                        except:
+                            response_json = None
+                    
+                    if response_json is not None:
                         allure.attach(
                             str(response_json),
                             "响应内容",
                             allure.attachment_type.JSON
                         )
-                    except:
+                    else:
                         allure.attach(
                             response.text,
                             "响应内容",

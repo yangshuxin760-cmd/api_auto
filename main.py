@@ -366,10 +366,14 @@ def test_yaml_case(yaml_file):
                 
                 if should_write:
                     try:
+                        # 优化：使用更紧凑的JSON格式，减少文件大小和IO时间
+                        # 只在最后一个用例或失败用例时使用fsync确保数据持久化
                         with open(stats_file, 'w', encoding='utf-8') as f:
-                            json.dump(_test_stats, f, ensure_ascii=False, indent=2)
+                            json.dump(_test_stats, f, ensure_ascii=False, separators=(',', ':'))
                             f.flush()
-                            os.fsync(f.fileno())
+                            # 只在关键情况下强制同步到磁盘（fsync很慢）
+                            if case_result in ('failed', 'error') or index == total_cases:
+                                os.fsync(f.fileno())
                         stats_write_counter = 0
                     except Exception as save_error:
                         print(f"⚠️  保存统计信息失败: {save_error}")
@@ -380,9 +384,10 @@ def test_yaml_case(yaml_file):
     # 最后再保存一次统计信息，确保所有数据都被写入
     try:
         with open(stats_file, 'w', encoding='utf-8') as f:
-            json.dump(_test_stats, f, ensure_ascii=False, indent=2)
+            # 最终保存时使用紧凑格式，减少文件大小
+            json.dump(_test_stats, f, ensure_ascii=False, separators=(',', ':'))
             f.flush()
-            os.fsync(f.fileno())
+            os.fsync(f.fileno())  # 最终保存时强制同步
     except Exception as save_error:
         print(f"⚠️  最终保存统计信息失败: {save_error}")
     

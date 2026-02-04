@@ -107,9 +107,36 @@ class HttpClient:
         
         return headers
     
+    def _resolve_field_path(self, data: Any, field_path: str, error_context: str = None) -> Any:
+        """
+        解析嵌套字段路径（辅助方法，减少重复代码）
+        
+        Args:
+            data: 数据对象（dict或list）
+            field_path: 字段路径，如 "data.user.name" 或 "0.id"
+            error_context: 错误上下文，用于错误信息
+        
+        Returns:
+            解析后的值
+        
+        Raises:
+            ValueError: 路径不存在时抛出异常
+        """
+        keys = field_path.split('.')
+        value = data
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            elif isinstance(value, list) and key.isdigit():
+                value = value[int(key)]
+            else:
+                error_msg = error_context or field_path
+                raise ValueError(f"无法解析引用路径: {error_msg}")
+        return value
+    
     def _resolve_builtin_variables(self, var_name: str) -> str:
         """
-        解析内置变量
+        解析内置变量（使用字典映射优化性能）
         
         Args:
             var_name: 变量名称
@@ -117,30 +144,20 @@ class HttpClient:
         Returns:
             变量值
         """
-        import random
-        import uuid
+        # 使用字典映射替代多个if-elif，提高性能
+        builtin_handlers = {
+            'timestamp': lambda: str(int(time.time())),
+            'timestamp_ms': lambda: str(int(time.time() * 1000)),
+            'random': lambda: str(random.randint(0, 999999)),
+            'random_int': lambda: str(random.randint(0, 999999)),
+            'uuid': lambda: str(uuid.uuid4()),
+            'uuid_short': lambda: str(uuid.uuid4()).replace('-', '')
+        }
         
-        if var_name == 'timestamp':
-            # 返回时间戳（秒）
-            return str(int(time.time()))
-        elif var_name == 'timestamp_ms':
-            # 返回时间戳（毫秒）
-            return str(int(time.time() * 1000))
-        elif var_name == 'random':
-            # 返回随机整数（0-999999）
-            return str(random.randint(0, 999999))
-        elif var_name == 'random_int':
-            # 返回随机整数（0-999999）
-            return str(random.randint(0, 999999))
-        elif var_name == 'uuid':
-            # 返回UUID
-            return str(uuid.uuid4())
-        elif var_name == 'uuid_short':
-            # 返回短UUID（去掉横线）
-            return str(uuid.uuid4()).replace('-', '')
-        else:
-            # 未知的内置变量，返回原值
-            return None
+        handler = builtin_handlers.get(var_name)
+        if handler:
+            return handler()
+        return None
     
     def _resolve_variables(self, data: Any, case_name: str = None) -> Any:
         """
@@ -177,34 +194,15 @@ class HttpClient:
                     if ref_case_name in self.response_cache:
                         ref_response = self.response_cache[ref_case_name]
                         
-                        # 解析嵌套字段路径
-                        keys = field_path.split('.')
-                        value = ref_response
-                        for key in keys:
-                            if isinstance(value, dict) and key in value:
-                                value = value[key]
-                            elif isinstance(value, list) and key.isdigit():
-                                value = value[int(key)]
-                            else:
-                                raise ValueError(f"无法解析引用路径: {ref_path}")
-                        
-                        return value
+                        # 解析嵌套字段路径（提取为辅助方法，减少重复）
+                        return self._resolve_field_path(ref_response, field_path, ref_path)
                     else:
                         raise ValueError(f"引用的用例响应不存在: {ref_case_name}")
                 else:
                     # 如果没有指定用例名，尝试从当前用例的响应中查找
                     if case_name and case_name in self.response_cache:
                         ref_response = self.response_cache[case_name]
-                        keys = ref_path.split('.')
-                        value = ref_response
-                        for key in keys:
-                            if isinstance(value, dict) and key in value:
-                                value = value[key]
-                            elif isinstance(value, list) and key.isdigit():
-                                value = value[int(key)]
-                            else:
-                                raise ValueError(f"无法解析引用路径: {ref_path}")
-                        return value
+                        return self._resolve_field_path(ref_response, ref_path, ref_path)
                     else:
                         # 如果都不是，尝试作为内置变量
                         builtin_value = self._resolve_builtin_variables(ref_path)
@@ -228,16 +226,11 @@ class HttpClient:
                         ref_case_name, field_path = parts
                         if ref_case_name in self.response_cache:
                             ref_response = self.response_cache[ref_case_name]
-                            keys = field_path.split('.')
-                            value = ref_response
-                            for key in keys:
-                                if isinstance(value, dict) and key in value:
-                                    value = value[key]
-                                elif isinstance(value, list) and key.isdigit():
-                                    value = value[int(key)]
-                                else:
-                                    return match.group(0)  # 无法解析，返回原值
-                            return str(value)
+                            try:
+                                value = self._resolve_field_path(ref_response, field_path, var_name)
+                                return str(value)
+                            except:
+                                return match.group(0)  # 无法解析，返回原值
                     return match.group(0)  # 无法解析，返回原值
                 
                 return re.sub(pattern, replace_var, data)
@@ -369,11 +362,16 @@ class HttpClient:
                 self.set_token(token)
         
         # 缓存响应数据，用于后续接口依赖（使用已解析的JSON）
+        # 同时将解析后的JSON附加到response对象，避免重复解析
         if case_name:
             if is_json and response_json:
                 self.response_cache[case_name] = response_json
             else:
                 self.response_cache[case_name] = {'text': response.text}
+        
+        # 将解析后的JSON附加到response对象，供后续使用
+        if is_json and response_json:
+            response._parsed_json = response_json
         
         return response
     

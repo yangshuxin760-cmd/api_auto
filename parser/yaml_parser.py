@@ -60,7 +60,7 @@ class YamlParser:
     
     def _translate_keywords(self, data: Any) -> Any:
         """
-        将中文关键字转换为英文关键字
+        将中文关键字转换为英文关键字（优化版本，减少字典查找次数）
         
         Args:
             data: 需要转换的数据
@@ -69,14 +69,14 @@ class YamlParser:
             转换后的数据
         """
         if isinstance(data, dict):
-            translated = {}
-            for key, value in data.items():
-                # 转换键名
-                translated_key = self.KEYWORD_MAPPING.get(key, key)
-                # 递归转换值
-                translated[translated_key] = self._translate_keywords(value)
+            # 使用字典推导式，性能更好
+            translated = {
+                self.KEYWORD_MAPPING.get(key, key): self._translate_keywords(value)
+                for key, value in data.items()
+            }
             return translated
         elif isinstance(data, list):
+            # 使用列表推导式
             return [self._translate_keywords(item) for item in data]
         else:
             return data
