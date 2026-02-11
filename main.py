@@ -211,14 +211,10 @@ def test_yaml_case(yaml_file):
     logger.info(f"开始执行测试文件: {yaml_file}")
     
     # 解析YAML文件，获取所有测试用例
-    try:
-        from parser.yaml_parser import YamlParser
-        parser = YamlParser(yaml_file)
-        test_cases = parser.parse()
-        logger.info(f"成功解析 {len(test_cases)} 个测试用例")
-    except Exception as e:
-        logger.error(f"解析YAML文件失败: {e}", exc_info=True)
-        raise TestFrameworkError(f"解析YAML文件失败: {e}", {'yaml_file': yaml_file})
+    from parser.yaml_parser import YamlParser
+    parser = YamlParser(yaml_file)
+    test_cases = parser.parse()
+    logger.info(f"成功解析 {len(test_cases)} 个测试用例")
     
     # 获取文件级前置登录配置
     file_pre_login = parser.get_file_pre_login()
@@ -520,17 +516,13 @@ if __name__ == '__main__':
         f'--alluredir={allure_results_dir}',
         '--tb=short',
         '-s',  # 不捕获输出，显示print和logging
-        # 移除pytest的日志配置，使用我们自己的日志配置，避免重复
-        # '--log-cli-level=INFO',
-        # '--log-cli-format=%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        # '--log-cli-date-format=%Y-%m-%d %H:%M:%S'
     ]
-    
+
     exit_code = pytest.main(pytest_args)
     
     # 打印总体总结
     print(f"\n{SEPARATOR_LINE}")
-    print(f"🎉 所有测试文件执行完成！")
+    print(f" 所有测试文件执行完成！")
     print(SEPARATOR_LINE)
     print(f"  共执行 {len(yaml_files)} 个测试文件")
     for yaml_file in yaml_files:
