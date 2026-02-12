@@ -105,6 +105,9 @@ class HttpClient:
                 token_value = self.token
             
             headers[header_key] = token_value
+            logger.info(f"🔑 Token已添加到请求头 {header_key}: {token_value[:30]}..." if len(token_value) > 30 else f"🔑 Token已添加到请求头 {header_key}: {token_value}")
+        else:
+            logger.warning("⚠️  请求需要token，但当前没有可用的token")
         
         return headers
 
@@ -314,7 +317,10 @@ class HttpClient:
         
         # 添加token到请求头（仅当允许使用token时）
         if use_token:
+            logger.info(f"🔍 准备添加token，当前token状态: {'存在' if self.token else '不存在'}")
             headers = self._add_token_to_headers(headers)
+        else:
+            logger.info("🔍 当前请求不使用token (use_token=False)")
         
         # 打印请求日志（简洁版）
         start_time = time.time()
@@ -400,6 +406,10 @@ class HttpClient:
             token = self._get_token_from_response(response_json)
             if token:
                 self.set_token(token)
+                logger.info(f"🔑 Token已提取并保存: {token[:20]}..." if len(token) > 20 else f"🔑 Token已提取并保存: {token}")
+            else:
+                # 调试：如果token提取失败，记录响应内容
+                logger.debug(f"⚠️  未从响应中提取到token，响应内容: {json.dumps(response_json, ensure_ascii=False)[:200]}")
         
         # 缓存响应数据，用于后续接口依赖（使用已解析的JSON）
         # 同时将解析后的JSON附加到response对象，避免重复解析

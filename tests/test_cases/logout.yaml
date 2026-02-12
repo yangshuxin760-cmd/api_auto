@@ -1,0 +1,39 @@
+#需要先发送验证码
+- 用例名称: 发送验证码_用于登录
+  请求方法: POST
+  请求地址: /sms/send
+  请求体:
+    phone: "13800138000"
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: msg
+        期望值: success
+# 然后先登录获取token
+- 用例名称: 登录_用于退出登录
+  前置Redis: "fto:sms:code:{phone}"
+  请求方法: POST
+  请求地址: /login/phone
+  请求体:
+    phone: "13800138000"
+    code: ${redis.code}
+    deviceType: "web"
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: data.username
+        期望值: "用户uCJC8z4zcu"
+
+ #退出登录接口
+- 用例名称: 退出登录_正常场景
+  请求方法: POST
+  请求地址: /logout
+  请求体: {}
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: code
+        期望值: 0
+      - 字段: msg
+        期望值: "success"
+

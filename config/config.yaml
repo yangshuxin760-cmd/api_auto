@@ -34,7 +34,7 @@ token:
   # Token在请求头中的key
   header_key: Authorization
   # Token前缀，例如: Bearer（如果不需要前缀，可以设置为空字符串）
-  prefix: ""
+  prefix: "Bearer"
 
 # 钉钉通知配置
 dingtalk:
