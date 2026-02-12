@@ -35,15 +35,15 @@ class DatabaseHandler:
         if self.connection is None:
             try:
                 self.connection = pymysql.connect(
-                    host=self.config.get('host', 'localhost'),
-                    port=self.config.get('port', 3306),
-                    user=self.config.get('user', 'root'),
-                    password=self.config.get('password', ''),
-                    database=self.config.get('database', ''),
-                    charset=self.config.get('charset', 'utf8mb4'),
+                host=self.config.get('host', 'localhost'),
+                port=self.config.get('port', 3306),
+                user=self.config.get('user', 'root'),
+                password=self.config.get('password', ''),
+                database=self.config.get('database', ''),
+                charset=self.config.get('charset', 'utf8mb4'),
                     cursorclass=pymysql.cursors.DictCursor,
                     autocommit=False  # 手动控制事务
-                )
+            )
             except Exception as e:
                 raise Exception(f"数据库连接失败: {str(e)}")
     
@@ -92,8 +92,7 @@ class DatabaseHandler:
         except Exception as e:
             if self.connection:
                 self.connection.rollback()
-            raise Exception(f"SQL执行失败: {str(e)}")
-    
+                raise Exception(f"SQL执行失败: {str(e)}")
     def _is_connection_alive(self) -> bool:
         """
         检查数据库连接是否仍然有效

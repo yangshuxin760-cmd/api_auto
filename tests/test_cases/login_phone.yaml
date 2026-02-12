@@ -1,0 +1,123 @@
+
+# ========== 正常场景 ==========
+- 用例名称: 发送验证码_用于登录
+  请求方法: POST
+  请求地址: /sms/send
+  请求体:
+    phone: "13800138000"
+  断言:
+    状态码: 200
+    字段断言: 
+      - 字段: msg
+        期望值: success
+
+- 用例名称: 手机验证码登录_正常场景
+  前置Redis: "fto:sms:code:{phone}"
+  请求方法: POST
+  请求地址: /login/phone
+  请求体:
+    phone: "13800138000"
+    code: ${redis.code}
+    deviceType: "web"
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: data.username
+        期望值: "用户uCJC8z4zcu"
+
+
+#========== 异常场景 ==========
+
+- 用例名称: 手机验证码登录_手机号为空
+  请求方法: POST
+  请求地址: /login/phone
+  请求体:
+    phone: ""
+    code: "222222"
+    deviceType: "web"
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: code
+        期望值: 400
+      - 字段: msg
+        期望值: "phone: String should have at least 11 characters"
+
+
+- 用例名称: 手机验证码登录_验证码为空
+  请求方法: POST
+  请求地址: /login/phone
+  请求体:
+    phone: "13800138000"
+    code: ""
+    deviceType: "web"
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: code
+        期望值: 400
+      - 字段: msg
+        期望值: "code: String should have at least 4 characters"
+
+
+- 用例名称: 手机验证码登录_缺少手机号参数
+  请求方法: POST
+  请求地址: /login/phone
+  请求体:
+    code: "222222"
+    deviceType: "web"
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: code
+        期望值: 400
+      - 字段: msg
+        期望值: "phone: Field required"
+
+
+- 用例名称: 手机验证码登录_缺少验证码参数
+  请求方法: POST
+  请求地址: /login/phone
+  请求体:
+    phone: "13800138000"
+    deviceType: "web"
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: code
+        期望值: 400
+      - 字段: msg
+        期望值: "code: Field required"
+
+- 用例名称: 手机验证码登录_验证码错误 #过期和错误都是一个用例
+  请求方法: POST
+  请求地址: /login/phone
+  请求体:
+    phone: "13800138000"
+    code: "000000"
+    deviceType: "web"
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: code
+        期望值: 400
+      - 字段: msg
+        期望值: "验证码错误或已失效"
+
+
+
+
+- 用例名称: 手机验证码登录_手机号格式错误
+  请求方法: POST
+  请求地址: /login/phone
+  请求体:
+    phone: "138abc12345"
+    code: "222222"
+    deviceType: "web"
+  断言:
+    状态码: 200
+    字段断言:
+      - 字段: code
+        期望值: 400
+      - 字段: msg
+        期望值: "phone: String should match pattern '^1[3-9]\\d{9}$'"

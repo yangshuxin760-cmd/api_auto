@@ -28,6 +28,10 @@ class YamlParser:
         # SQL相关
         '前置SQL': 'pre_sql',
         '后置SQL': 'post_sql',
+        # Redis相关
+        '前置Redis': 'pre_redis',
+        'Redis配置': 'pre_redis',
+        'Redis键模式': 'redis_key_pattern',
         # 登录相关
         '前置登录': 'pre_login',
         '自动注册': 'auto_register',

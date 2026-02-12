@@ -46,6 +46,7 @@ class HttpClient:
         self.base_url = self.config.get_base_url()
         self.timeout = self.config.get_timeout()
         self.token_config = self.config.get_token_config()
+        self.default_headers = self.config.get_default_headers()
     
     def set_token(self, token: str):
         """
@@ -106,6 +107,23 @@ class HttpClient:
             headers[header_key] = token_value
         
         return headers
+
+    def _merge_headers(
+        self,
+        base_headers: Optional[Dict[str, Any]],
+        override_headers: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        合并请求头（override 覆盖 base，同名 key 以 override 为准）
+        """
+        if not base_headers and not override_headers:
+            return None
+        merged: Dict[str, Any] = {}
+        if isinstance(base_headers, dict):
+            merged.update(base_headers)
+        if isinstance(override_headers, dict):
+            merged.update(override_headers)
+        return merged
     
     def _resolve_field_path(self, data: Any, field_path: str, error_context: str = None) -> Any:
         """
@@ -157,7 +175,7 @@ class HttpClient:
         handler = builtin_handlers.get(var_name)
         if handler:
             return handler()
-        return None
+            return None
     
     def _resolve_variables(self, data: Any, case_name: str = None) -> Any:
         """
@@ -186,6 +204,14 @@ class HttpClient:
                 builtin_value = self._resolve_builtin_variables(ref_path)
                 if builtin_value is not None:
                     return builtin_value
+                
+                # 支持 ${redis.xxx} 格式（Redis查询，由test_runner处理，这里跳过）
+                if ref_path.startswith('redis.'):
+                    return data  # 返回原值，让test_runner处理
+                
+                # 支持 ${sql.xxx} 格式（SQL查询结果，由test_runner处理，这里跳过）
+                if ref_path.startswith('sql.'):
+                    return data  # 返回原值，让test_runner处理
                 
                 # 支持 ${case_name.field} 格式的引用
                 parts = ref_path.split('.', 1)
@@ -220,6 +246,10 @@ class HttpClient:
                     builtin_value = self._resolve_builtin_variables(var_name)
                     if builtin_value is not None:
                         return builtin_value
+                    # 跳过 ${redis.xxx} 和 ${sql.xxx} 格式（由test_runner处理）
+                    if var_name.startswith('redis.') or var_name.startswith('sql.'):
+                        return match.group(0)  # 返回原值
+                    
                     # 尝试解析接口依赖变量
                     parts = var_name.split('.', 1)
                     if len(parts) == 2:
@@ -230,7 +260,7 @@ class HttpClient:
                                 value = self._resolve_field_path(ref_response, field_path, var_name)
                                 return str(value)
                             except:
-                                return match.group(0)  # 无法解析，返回原值
+                                    return match.group(0)  # 无法解析，返回原值
                     return match.group(0)  # 无法解析，返回原值
                 
                 return re.sub(pattern, replace_var, data)
@@ -271,11 +301,16 @@ class HttpClient:
         else:
             full_url = f"{self.base_url}{url}"
         
+        # 合并全局默认请求头 + 用例请求头（用例优先）
+        headers = self._merge_headers(self.default_headers, headers)
+
         # 解析变量引用
         headers = self._resolve_variables(headers, case_name) if headers else None
         params = self._resolve_variables(params, case_name) if params else None
         data = self._resolve_variables(data, case_name) if data else None
-        json_data = self._resolve_variables(json_data, case_name) if json_data else None
+        # 注意：json_data即使是空字典{}也要保留，确保发送JSON请求
+        if json_data is not None:
+            json_data = self._resolve_variables(json_data, case_name)
         
         # 添加token到请求头（仅当允许使用token时）
         if use_token:
@@ -286,22 +321,27 @@ class HttpClient:
         logger.info(f"🌐 {method.upper()} {full_url}")
         if params:
             logger.info(f"📌 参数: {json.dumps(params, ensure_ascii=False)}")
-        if json_data:
+        if json_data is not None:
             logger.info(f"📤 请求: {json.dumps(json_data, ensure_ascii=False)}")
         elif data:
             logger.info(f"📤 表单: {data}")
         
         # 发送请求
         try:
-            response = self.session.request(
-                method=method.upper(),
-                url=full_url,
-                headers=headers,
-                params=params,
-                data=data,
-                json=json_data,
-                timeout=self.timeout
-            )
+            # 如果json_data是None，不传递json参数；如果是空字典{}，也要传递以发送JSON请求
+            request_kwargs = {
+                'method': method.upper(),
+                'url': full_url,
+                'headers': headers,
+                'params': params,
+                'timeout': self.timeout
+            }
+            if json_data is not None:
+                request_kwargs['json'] = json_data
+            elif data:
+                request_kwargs['data'] = data
+            
+            response = self.session.request(**request_kwargs)
         except Exception as e:
             elapsed_time = time.time() - start_time
             logger.error(f"【请求异常】{str(e)}")

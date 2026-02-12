@@ -77,7 +77,7 @@ class Assertion:
         # 去掉 ${ 和 }
         ref_path = expected_value[2:-1]
         
-        # 支持 ${request.json.field} 格式
+            # 支持 ${request.json.field} 格式
         if ref_path.startswith('request.'):
             if request_context is None:
                 return expected_value
@@ -176,6 +176,8 @@ class Assertion:
             resolved_expected_value = Assertion._resolve_request_reference(
                 expected_value, request_context, response_cache
             )
+            # 打印实际值用于调试
+            print(f"    实际值 = {value}")
             assert value == resolved_expected_value, \
                 f"字段 {field_path} 断言失败: 期望 {resolved_expected_value}, 实际 {value}"
     
@@ -250,19 +252,23 @@ class Assertion:
                     expected_value, request_context, response_cache
                 )
             
+            # 打印断言信息
             if not_empty:
+                print(f"  ✓ 断言字段 {field} 不为空")
                 Assertion.assert_response_field(
                     response, field, not_empty=True, 
                     request_context=request_context,
                     response_cache=response_cache
                 )
             elif expected_value is not None:
+                print(f"  ✓ 断言字段 {field}: 期望值 = {expected_value}")
                 Assertion.assert_response_field(
                     response, field, expected_value=expected_value, 
                     request_context=request_context,
                     response_cache=response_cache
                 )
             else:
+                print(f"  ✓ 断言字段 {field} 不为空")
                 Assertion.assert_response_field(
                     response, field, not_empty=True, 
                     request_context=request_context,

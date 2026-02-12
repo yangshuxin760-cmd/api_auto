@@ -175,10 +175,19 @@ class ConfigManager:
     def get_token_config(self) -> Dict[str, Any]:
         """获取Token配置"""
         return self.get('token', {})
+
+    def get_default_headers(self) -> Dict[str, Any]:
+        """获取全局默认请求头配置"""
+        headers = self.get('headers', {}) or {}
+        return headers if isinstance(headers, dict) else {}
     
     def get_dingtalk_config(self) -> Dict[str, Any]:
         """获取钉钉配置"""
         return self.get('dingtalk', {})
+    
+    def get_redis_config(self) -> Dict[str, Any]:
+        """获取Redis配置"""
+        return self.get('redis', {})
     
     def get_all(self) -> Dict[str, Any]:
         """获取所有配置"""

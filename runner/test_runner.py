@@ -4,7 +4,7 @@
 """
 import allure
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import sys
 import os
 
@@ -15,6 +15,7 @@ from parser.yaml_parser import YamlParser
 from request.http_client import HttpClient
 from assertions.assertion import Assertion
 from database.db_handler import DatabaseHandler
+from redis_handler.redis_handler import RedisHandler
 
 
 class TestRunner:
@@ -29,6 +30,7 @@ class TestRunner:
         """
         self.http_client = HttpClient(config_path)
         self.db_handler = DatabaseHandler(config_path)
+        self.redis_handler = RedisHandler(config_path)
         self.assertion = Assertion()
     
     def _execute_pre_sql(self, sql: str) -> Any:
@@ -240,6 +242,59 @@ class TestRunner:
                 return sql_result[field_name]
         return data
     
+    def _execute_pre_redis(self, phone: str, key_pattern: str = None) -> Optional[str]:
+        """
+        从Redis获取验证码
+        
+        Args:
+            phone: 手机号
+            key_pattern: Redis键名模式（可选），如果不提供则使用配置文件中的默认值
+        
+        Returns:
+            验证码（字符串），如果不存在返回None
+        """
+        try:
+            code = self.redis_handler.get_verification_code(phone, key_pattern)
+            return code
+        except Exception as e:
+            print(f"⚠️  从Redis获取验证码失败: {str(e)}")
+            return None
+    
+    def _resolve_redis_result(self, data: Any, redis_result: Any) -> Any:
+        """
+        将Redis结果解析到接口参数中
+        
+        Args:
+            data: 接口参数
+            redis_result: Redis查询结果（验证码字符串）
+        
+        Returns:
+            解析后的参数
+        """
+        if redis_result is None:
+            return data
+        
+        if isinstance(data, dict):
+            resolved = {}
+            for key, value in data.items():
+                if isinstance(value, str) and value.startswith('${redis.'):
+                    # 支持 ${redis.code} 格式引用Redis结果
+                    field_name = value[8:-1]  # 去掉 ${redis. 和 }
+                    if field_name == 'code':
+                        resolved[key] = redis_result
+                    else:
+                        resolved[key] = value
+                else:
+                    resolved[key] = self._resolve_redis_result(value, redis_result)
+            return resolved
+        elif isinstance(data, list):
+            return [self._resolve_redis_result(item, redis_result) for item in data]
+        elif isinstance(data, str) and data.startswith('${redis.'):
+            field_name = data[8:-1]
+            if field_name == 'code':
+                return redis_result
+        return data
+    
     def _run_test_case(self, test_case: Dict[str, Any]) -> bool:
         """
         执行单个测试用例
@@ -268,7 +323,7 @@ class TestRunner:
                     with allure.step("执行用例级前置登录"):
                         # 用例级前置登录，获取独立的token（优先级最高）
                         self._execute_pre_login(pre_login, case_name)
-                        print(f"✅ 用例级前置登录完成，已获取独立token")
+                        print(f"用例级前置登录完成，已获取独立token")
                 # 如果没有配置用例级前置登录，使用文件级或全局token
                 # 如果用例不需要token，可以配置 不使用token: true
                 
@@ -304,12 +359,53 @@ class TestRunner:
                     json_data = self._resolve_sql_result(json_data, sql_result) if json_data else {}
                 
                 # 解析变量（如${timestamp}）到参数中
-                # 注意：由于_resolve_variables支持递归处理字典，这里分别解析更清晰
+                # 注意：${redis.xxx} 和 ${sql.xxx} 格式会被跳过，由后续步骤处理
                 url = self.http_client._resolve_variables(url, case_name) if url else ''
                 headers = self.http_client._resolve_variables(headers, case_name) if headers else {}
                 params = self.http_client._resolve_variables(params, case_name) if params else {}
                 data = self.http_client._resolve_variables(data, case_name) if data else None
                 json_data = self.http_client._resolve_variables(json_data, case_name) if json_data else {}
+                
+                # 检查是否需要从Redis获取验证码
+                redis_result = None
+                redis_key_pattern = None
+                # 检查用例中是否配置了Redis key模式
+                pre_redis = test_case.get('pre_redis')
+                if pre_redis:
+                    if isinstance(pre_redis, str):
+                        redis_key_pattern = pre_redis
+                    elif isinstance(pre_redis, dict):
+                        redis_key_pattern = pre_redis.get('redis_key_pattern') or pre_redis.get('key_pattern')
+                
+                if json_data:
+                    # 检查请求体中是否有 ${redis.code} 引用
+                    json_str = str(json_data)
+                    if '${redis.code}' in json_str or 'redis.code' in json_str:
+                        # 从请求体中提取phone（此时phone应该已经解析了其他变量）
+                        phone = json_data.get('phone', '')
+                        if phone:
+                            with allure.step("从Redis获取验证码"):
+                                if redis_key_pattern:
+                                    allure.attach(f"手机号: {phone}\nRedis键模式: {redis_key_pattern}", "Redis查询", allure.attachment_type.TEXT)
+                                else:
+                                    allure.attach(f"手机号: {phone}", "Redis查询", allure.attachment_type.TEXT)
+                                redis_result = self._execute_pre_redis(phone, redis_key_pattern)
+                                if redis_result:
+                                    allure.attach(
+                                        f"验证码: {redis_result}",
+                                        "Redis结果",
+                                        allure.attachment_type.TEXT
+                                    )
+                                    print(f"  ✓ 从Redis获取验证码: {redis_result}")
+                                else:
+                                    print(f"  ⚠️  Redis中未找到验证码（手机号: {phone}）")
+                
+                # 解析Redis结果到参数中
+                if redis_result:
+                    headers = self._resolve_redis_result(headers, redis_result)
+                    params = self._resolve_redis_result(params, redis_result)
+                    data = self._resolve_redis_result(data, redis_result) if data else None
+                    json_data = self._resolve_redis_result(json_data, redis_result) if json_data else {}
                 
                 # 发送请求
                 with allure.step(f"发送{method}请求"):
@@ -397,6 +493,7 @@ class TestRunner:
                 expected_status = assertions.get('status_code')
                 if expected_status:
                     with allure.step(f"断言状态码: {expected_status}"):
+                        print(f"  ✓ 断言状态码: 期望值 = {expected_status}")
                         self.assertion.assert_status_code(response, expected_status)
                 
                 # 断言响应字段

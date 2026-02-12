@@ -1,6 +1,12 @@
 # 框架配置文件
-base_url: http://173.249.27.176:8000
+base_url: https://test-fto-design-api.imingtu.com
 timeout: 30
+
+# 全局默认请求头（所有用例默认都会带上；用例里 headers 同名键会覆盖这里）
+# 注意：如果用例开启 token（默认开启），Authorization 会在运行时由框架注入并覆盖此处同名配置
+headers:
+  Content-Type: application/json
+  Accept: application/json
 
 # 数据库配置
 database:
@@ -11,15 +17,24 @@ database:
   database: test_db
   charset: utf8mb4
 
+# Redis配置（用于获取验证码等）
+redis:
+  host: 120.76.40.59
+  port: 6379
+  password: lsBMW0ncjG8dJs9vHVjMdKImI
+  db: 5
+  # 验证码在Redis中的key模式，{phone}会被替换为实际手机号
+  code_key_pattern: "fto:sms:code:{phone}"   
+
 # Token配置
 token:
   # Token存储的响应字段路径，例如: access_token 或 data.token
-  # 登录接口返回格式: {"access_token": "...", "token_type": "bearer"}
-  field_path: access_token
+  # 登录接口返回格式: {"code": 0, "data": {"token": "..."}, "msg": "success"}
+  field_path: data.token
   # Token在请求头中的key
   header_key: Authorization
-  # Token前缀，例如: Bearer
-  prefix: Bearer
+  # Token前缀，例如: Bearer（如果不需要前缀，可以设置为空字符串）
+  prefix: ""
 
 # 钉钉通知配置
 dingtalk:

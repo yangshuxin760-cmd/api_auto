@@ -373,11 +373,7 @@ def test_yaml_case(yaml_file):
                         stats_write_counter = 0
                     except Exception as save_error:
                         print(f"⚠️  保存统计信息失败: {save_error}")
-            
-            # 注意：不在循环中调用pytest.fail()，这样即使用例失败也会继续执行后续用例
-            # 所有用例执行完成后，再统一判断是否失败
-    
-    # 最后再保存一次统计信息，确保所有数据都被写入
+
     try:
         with open(stats_file, 'w', encoding='utf-8') as f:
             # 最终保存时使用紧凑格式，减少文件大小
