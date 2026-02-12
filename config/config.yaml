@@ -10,11 +10,14 @@ headers:
 
 # 数据库配置
 database:
-  host: localhost
-  port: 3306
-  user: root
-  password: password
-  database: test_db
+  # 数据库类型: mysql 或 postgresql (默认: postgresql)
+  type: postgresql
+  host: mingtu.rwlb.rds.aliyuncs.com
+  port: 5432
+  user: mingtu_pg_dev
+  password: 3jx)ckX=8dYYgYwjWHooi4d
+  database: fto_design_test
+  # MySQL专用配置（PostgreSQL不需要）
   charset: utf8mb4
 
 # Redis配置（用于获取验证码等）

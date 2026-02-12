@@ -516,7 +516,17 @@ class TestRunner:
                 if post_sql:
                     with allure.step("执行后置SQL"):
                         allure.attach(post_sql, "后置SQL", allure.attachment_type.TEXT)
-                        self._execute_post_sql(post_sql)
+                        try:
+                            self._execute_post_sql(post_sql)
+                            print("  ✓ 后置SQL执行成功")
+                        except Exception as e:
+                            print(f"  ⚠️  后置SQL执行失败: {str(e)}")
+                            allure.attach(
+                                f"后置SQL执行失败: {str(e)}",
+                                "后置SQL错误",
+                                allure.attachment_type.TEXT
+                            )
+                            # 后置SQL失败不中断测试，只记录警告
                 
                 # 打印用例成功标记
                 print(f"✅ 用例执行成功\n")

@@ -246,7 +246,11 @@ class Assertion:
             expected_value = assertion.get('expected_value')
             not_empty = assertion.get('not_empty', False)
             
-            # 解析期望值中的变量引用
+            # 检查是否明确设置了expected_value（包括None/null）
+            # 使用 'expected_value' in assertion 来判断是否明确设置了值
+            has_expected_value = 'expected_value' in assertion
+            
+            # 解析期望值中的变量引用（如果期望值不是None）
             if expected_value is not None:
                 expected_value = Assertion._resolve_request_reference(
                     expected_value, request_context, response_cache
@@ -260,7 +264,8 @@ class Assertion:
                     request_context=request_context,
                     response_cache=response_cache
                 )
-            elif expected_value is not None:
+            elif has_expected_value:
+                # 明确设置了期望值（包括None/null）
                 print(f"  ✓ 断言字段 {field}: 期望值 = {expected_value}")
                 Assertion.assert_response_field(
                     response, field, expected_value=expected_value, 
@@ -268,6 +273,7 @@ class Assertion:
                     response_cache=response_cache
                 )
             else:
+                # 既没有设置期望值，也没有设置不为空，默认断言不为空
                 print(f"  ✓ 断言字段 {field} 不为空")
                 Assertion.assert_response_field(
                     response, field, not_empty=True, 

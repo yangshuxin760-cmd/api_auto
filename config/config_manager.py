@@ -66,6 +66,7 @@ class ConfigManager:
         env_mappings = {
             'BASE_URL': ('base_url', str),
             'TIMEOUT': ('timeout', int),
+            'DB_TYPE': ('database', 'type', str),
             'DB_HOST': ('database', 'host', str),
             'DB_PORT': ('database', 'port', int),
             'DB_USER': ('database', 'user', str),

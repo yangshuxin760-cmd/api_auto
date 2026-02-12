@@ -1,8 +1,8 @@
 """
 数据库操作处理器
 支持前置SQL和后置SQL操作
+支持MySQL和PostgreSQL
 """
-import pymysql
 from typing import Dict, Any, List, Optional
 import yaml
 import os
@@ -22,6 +22,7 @@ class DatabaseHandler:
         from utils.exceptions import DatabaseError
         
         self.connection = None
+        self.db_type = None  # 'mysql' 或 'postgresql'
         
         # 使用统一的配置管理器
         try:
@@ -34,16 +35,61 @@ class DatabaseHandler:
         """建立数据库连接（延迟连接，只在需要时连接）"""
         if self.connection is None:
             try:
-                self.connection = pymysql.connect(
-                host=self.config.get('host', 'localhost'),
-                port=self.config.get('port', 3306),
-                user=self.config.get('user', 'root'),
-                password=self.config.get('password', ''),
-                database=self.config.get('database', ''),
-                charset=self.config.get('charset', 'utf8mb4'),
-                    cursorclass=pymysql.cursors.DictCursor,
-                    autocommit=False  # 手动控制事务
-            )
+                db_type = self.config.get('type', 'postgresql').lower()
+                
+                if db_type == 'postgresql' or db_type == 'postgres':
+                    # PostgreSQL连接
+                    import psycopg2
+                    from psycopg2.extras import RealDictCursor
+                    
+                    host = self.config.get('host', 'localhost')
+                    port = self.config.get('port', 5432)
+                    user = self.config.get('user', 'postgres')
+                    password = self.config.get('password', '')
+                    database = self.config.get('database', '')
+                    
+                    try:
+                        self.connection = psycopg2.connect(
+                            host=host,
+                            port=port,
+                            user=user,
+                            password=password,
+                            database=database,
+                            cursor_factory=RealDictCursor
+                        )
+                        self.db_type = 'postgresql'
+                    except psycopg2.OperationalError as e:
+                        # 提供更详细的错误信息
+                        error_msg = str(e)
+                        if "Database does not exist" in error_msg:
+                            raise Exception(
+                                f"数据库连接失败: 数据库 '{database}' 不存在\n"
+                                f"连接信息: {user}@{host}:{port}\n"
+                                f"请检查配置中的 database 字段是否正确"
+                            )
+                        else:
+                            raise Exception(f"数据库连接失败: {error_msg}")
+                else:
+                    # MySQL连接（默认）
+                    import pymysql
+                    
+                    self.connection = pymysql.connect(
+                        host=self.config.get('host', 'localhost'),
+                        port=self.config.get('port', 3306),
+                        user=self.config.get('user', 'root'),
+                        password=self.config.get('password', ''),
+                        database=self.config.get('database', ''),
+                        charset=self.config.get('charset', 'utf8mb4'),
+                        cursorclass=pymysql.cursors.DictCursor,
+                        autocommit=False
+                    )
+                    self.db_type = 'mysql'
+            except ImportError as e:
+                db_type = self.config.get('type', 'postgresql').lower()
+                if db_type in ['postgresql', 'postgres']:
+                    raise Exception(f"PostgreSQL驱动未安装，请运行: pip install psycopg2-binary")
+                else:
+                    raise Exception(f"MySQL驱动未安装，请运行: pip install pymysql")
             except Exception as e:
                 raise Exception(f"数据库连接失败: {str(e)}")
     
@@ -103,7 +149,13 @@ class DatabaseHandler:
         if self.connection is None:
             return False
         try:
-            self.connection.ping(reconnect=False)
+            if self.db_type == 'postgresql':
+                # PostgreSQL使用简单的查询来检查连接
+                with self.connection.cursor() as cursor:
+                    cursor.execute('SELECT 1')
+            else:
+                # MySQL使用ping方法
+                self.connection.ping(reconnect=False)
             return True
         except:
             return False
